@@ -102,6 +102,7 @@ WHOIS Watching now includes an opt-in **Secure Tor Chat** workspace for peer-to-
 * Join mode routes connections through the Tor SOCKS proxy by default. Supply the host’s onion address and shared session passphrase to authenticate the channel.
 * Messages remain within the encrypted tunnel and are logged locally. File offers always require manual acceptance before anything is saved to the Downloads directory.
 * Use `scripts\install.bat` to package the full application into an EXE for teammates—both peers must run the compiled WHOIS Watching build to participate in the secure chat.
+* The secure chat workspace depends on the optional `PySocks` package. If it is missing, the tab stays disabled until you install it (`pip install PySocks` or rerun `scripts\install.bat`).
 
 Refer to the Tor Project documentation for enabling the control port and configuring authentication. Never expose the chat service to production networks; keep it restricted to vetted peers inside a defensive lab environment.
 

@@ -1090,6 +1090,13 @@ class TorChatPage(PanelFrame):
         dialog = FileOfferDialog(name, size, self)
         return dialog.exec_() == QtWidgets.QDialog.Accepted
 
+    def set_available(self, available: bool, reason: Optional[str] = None) -> None:
+        self.setEnabled(available)
+        if available:
+            return
+        message = reason or "Secure chat requires optional Tor dependencies."
+        self.status_label.setText(message)
+
 
 class FileOfferDialog(QtWidgets.QDialog):
     def __init__(self, name: str, size: int, parent: Optional[QtWidgets.QWidget] = None) -> None:
@@ -1298,7 +1305,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pages.addWidget(self.lab_page)
         self.pages.addWidget(self.chat_page)
 
-        self.chat_manager = TorChatManager(paths.get_downloads_directory())
+        self.chat_manager: Optional[TorChatManager]
+        try:
+            self.chat_manager = TorChatManager(paths.get_downloads_directory())
+        except RuntimeError as exc:
+            self.chat_manager = None
+            self.chat_page.set_available(False, str(exc))
+        else:
+            self.chat_page.set_available(True)
         self._active_limit = self.process_page.process_limit
 
         self.navigation.set_current(0)
@@ -1582,6 +1596,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_bar.showMessage("Opened README for lab guidance", 6000)
 
     def _start_chat_host(self, config: Dict[str, object]) -> None:
+        if not self.chat_manager:
+            self.chat_page.show_status("Secure chat dependencies unavailable")
+            return
         handshake = str(config.get("handshake", ""))
         port = int(config.get("port", 0))
         control_port = config.get("control_port")
@@ -1602,6 +1619,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.chat_page.set_hosting_active(False)
 
     def _join_chat_session(self, config: Dict[str, object]) -> None:
+        if not self.chat_manager:
+            self.chat_page.show_status("Secure chat dependencies unavailable")
+            return
         try:
             self.chat_manager.connect(
                 host=str(config.get("host", "")),
@@ -1615,15 +1635,23 @@ class MainWindow(QtWidgets.QMainWindow):
             self.chat_page.set_connected(False)
 
     def _stop_chat_session(self) -> None:
+        if not self.chat_manager:
+            return
         self.chat_manager.stop()
         self.chat_page.set_connected(False)
         self.chat_page.set_hosting_active(False)
         self.chat_page.show_status("Secure chat session closed")
 
     def _send_chat_message(self, text: str) -> None:
+        if not self.chat_manager:
+            self.chat_page.show_status("Secure chat dependencies unavailable")
+            return
         self.chat_manager.send_message(text)
 
     def _choose_chat_file(self) -> None:
+        if not self.chat_manager:
+            self.chat_page.show_status("Secure chat dependencies unavailable")
+            return
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select file to share")
         if not path:
             return
@@ -1631,6 +1659,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.chat_page.show_status(f"Offering {Path(path).name} to peer")
 
     def _drain_chat_events(self) -> None:
+        if not self.chat_manager:
+            return
         events = self.chat_manager.poll_events()
         for event in events:
             if event.type == "hosting":
@@ -1677,7 +1707,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
         self.chat_timer.stop()
-        self.chat_manager.stop()
+        if self.chat_manager:
+            self.chat_manager.stop()
         if self._refresh_thread and self._refresh_thread.isRunning():
             self._refresh_thread.requestInterruption()
             self._refresh_thread.quit()

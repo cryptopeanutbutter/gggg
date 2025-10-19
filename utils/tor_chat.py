@@ -12,7 +12,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import socks
+try:  # pragma: no cover - optional runtime dependency
+    import socks  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - dependency missing on some systems
+    socks = None  # type: ignore
 
 try:  # pragma: no cover - optional dependency for runtime
     from stem.control import Controller
@@ -158,6 +161,10 @@ class ChatWorker(threading.Thread):
 
     def _open_socket(self, host: str, port: int) -> socket.socket:
         if self.socks_host and self.socks_port:
+            if socks is None:
+                raise RuntimeError(
+                    "PySocks dependency missing. Install with 'pip install PySocks' or run scripts\\install.bat."
+                )
             sock: socket.socket = socks.socksocket()
             sock.set_proxy(socks.SOCKS5, self.socks_host, self.socks_port)
         else:
@@ -323,6 +330,11 @@ class TorChatManager:
     """Threaded chat helper polled by the UI."""
 
     def __init__(self, downloads_dir: Path) -> None:
+        if socks is None:
+            raise RuntimeError(
+                "Secure chat requires the optional PySocks package. Install it with 'pip install PySocks' "
+                "or execute scripts\\install.bat to enable Tor-based chat."
+            )
         self.downloads_dir = downloads_dir
         self.downloads_dir.mkdir(parents=True, exist_ok=True)
         self._event_queue: "queue.Queue[ChatEvent]" = queue.Queue()
