@@ -27,7 +27,7 @@ class HeuristicEngine:
             "timestamp_gap": 0.6,
         }
 
-    def evaluate(self, signals: Iterable[HeuristicSignal]) -> Tuple[int, str]:
+    def evaluate(self, signals: Iterable[HeuristicSignal], ai_context: str | None = None) -> Tuple[int, str]:
         total_weight = 0.0
         weighted_score = 0.0
         rationales = []
@@ -35,9 +35,14 @@ class HeuristicEngine:
             weight = self.weights.get(signal.name, signal.weight)
             total_weight += weight
             weighted_score += weight * signal.score
-            rationales.append(f"{signal.name}: {signal.rationale} ({signal.score:.2f})")
+            rationale = signal.rationale or signal.name.replace("_", " ")
+            bounded = max(0.0, min(1.0, signal.score))
+            score_percent = int(round(bounded * 100))
+            rationales.append(f"{rationale} ({score_percent}% signal)")
         if total_weight == 0:
-            return 0, "No signals"
+            return 0, ai_context or "No signals"
         normalized = min(100, max(0, int(math.ceil((weighted_score / total_weight) * 100))))
-        probable_cause = "; ".join(rationales[:5])
+        if ai_context:
+            rationales.append(ai_context)
+        probable_cause = " · ".join(rationales[:5])
         return normalized, probable_cause

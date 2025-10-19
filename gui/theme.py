@@ -100,6 +100,31 @@ QCheckBox::indicator:checked {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
         stop:0 rgba(190, 130, 255, 0.92), stop:1 rgba(130, 80, 220, 0.92));
 }
+QSlider#scanSlider::groove:horizontal {
+    height: 8px;
+    background: rgba(70, 40, 120, 0.65);
+    border-radius: 4px;
+}
+QSlider#scanSlider::handle:horizontal {
+    background: rgba(210, 180, 255, 0.9);
+    border: 2px solid rgba(140, 90, 220, 0.85);
+    width: 22px;
+    margin: -7px 0;
+    border-radius: 11px;
+    box-shadow: 0 0 12px rgba(180, 120, 255, 0.65);
+}
+QSlider#scanSlider::handle:horizontal:hover {
+    background: rgba(235, 210, 255, 0.95);
+}
+QSlider#scanSlider::sub-page:horizontal {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(160, 110, 240, 0.9), stop:1 rgba(120, 70, 210, 0.9));
+    border-radius: 4px;
+}
+QSlider#scanSlider::add-page:horizontal {
+    background: rgba(40, 18, 68, 0.7);
+    border-radius: 4px;
+}
 QStatusBar {
     background: rgba(8, 3, 18, 0.6);
     color: rgba(220, 205, 255, 0.8);
@@ -188,6 +213,27 @@ QToolButton#windowControl:hover {
 }
 QToolButton#windowControl:pressed {
     background: rgba(90, 40, 160, 0.65);
+}
+QLabel#connectionIndicator {
+    padding: 6px 16px;
+    border-radius: 16px;
+    font-weight: 600;
+    border: 1px solid rgba(140, 100, 210, 0.45);
+}
+QLabel#connectionIndicator[state="offline"] {
+    background: rgba(40, 16, 70, 0.82);
+    color: rgba(200, 170, 240, 0.85);
+}
+QLabel#connectionIndicator[state="warning"] {
+    background: rgba(120, 70, 30, 0.85);
+    color: rgba(250, 220, 190, 0.92);
+    border: 1px solid rgba(255, 200, 150, 0.6);
+}
+QLabel#connectionIndicator[state="online"] {
+    background: rgba(48, 24, 96, 0.92);
+    color: rgba(220, 210, 255, 0.98);
+    border: 1px solid rgba(180, 150, 255, 0.72);
+    box-shadow: 0 0 18px rgba(150, 110, 255, 0.55);
 }
 """
 

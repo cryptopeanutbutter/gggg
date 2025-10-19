@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import importlib
 import html
 import secrets
 from pathlib import Path
@@ -23,6 +24,9 @@ from utils.crypto_toolkit import (
 from utils.hashing import MultiDehasher
 from utils.tor_chat import ChatEvent, TorChatManager
 from . import theme
+
+
+AI_DEFAULT_MODEL = "gpt-4o-mini"
 
 
 class AnimatedButton(QtWidgets.QPushButton):
@@ -146,6 +150,13 @@ class TitleBar(QtWidgets.QFrame):
         title_block.addWidget(subtitle)
         layout.addLayout(title_block, stretch=1)
 
+        self.connection_indicator = QtWidgets.QLabel("AI Link: Offline")
+        self.connection_indicator.setObjectName("connectionIndicator")
+        layout.addWidget(
+            self.connection_indicator,
+            alignment=QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter,
+        )
+
         self.minimize_btn = QtWidgets.QToolButton()
         self.minimize_btn.setText("–")
         self.minimize_btn.setObjectName("windowControl")
@@ -176,6 +187,14 @@ class TitleBar(QtWidgets.QFrame):
         if event.button() == QtCore.Qt.LeftButton:
             self._drag_offset = None
         super().mouseReleaseEvent(event)
+
+    def set_connection_status(self, text: str, state: str) -> None:
+        self.connection_indicator.setText(text)
+        self.connection_indicator.setProperty("state", state)
+        style = self.connection_indicator.style()
+        style.unpolish(self.connection_indicator)
+        style.polish(self.connection_indicator)
+        self.connection_indicator.update()
 
 
 class NavigationButton(AnimatedButton):
@@ -212,14 +231,18 @@ class ProcessRefreshWorker(QtCore.QObject):
     results_ready = QtCore.pyqtSignal(list)
     error = QtCore.pyqtSignal(str)
 
-    def __init__(self, scanner: ProcessScanner) -> None:
+    def __init__(self, scanner: ProcessScanner, limit: Optional[int] = None) -> None:
         super().__init__()
         self._scanner = scanner
+        self._limit = limit
+
+    def set_limit(self, limit: Optional[int]) -> None:
+        self._limit = limit
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
         try:
-            processes = list(self._scanner.list_processes())
+            processes = list(self._scanner.list_processes(limit=self._limit))
             self.results_ready.emit(processes)
         except Exception as exc:  # pragma: no cover - defensive logging path
             self.error.emit(str(exc))
@@ -375,7 +398,7 @@ class ProcessOverviewDialog(QtWidgets.QDialog):
 
 
 class ProcessPage(PanelFrame):
-    refresh_requested = QtCore.pyqtSignal()
+    refresh_requested = QtCore.pyqtSignal(int)
     export_requested = QtCore.pyqtSignal()
     reduced_motion_requested = QtCore.pyqtSignal()
 
@@ -385,7 +408,7 @@ class ProcessPage(PanelFrame):
         layout.setContentsMargins(36, 34, 36, 36)
         layout.setSpacing(22)
 
-        self.summary_label = QtWidgets.QLabel("Preparing telemetry…")
+        self.summary_label = QtWidgets.QLabel("Manual scan ready — choose a sample size and click Refresh.")
         self.summary_label.setObjectName("summary")
         layout.addWidget(self.summary_label)
 
@@ -394,13 +417,34 @@ class ProcessPage(PanelFrame):
         self.network_label.setVisible(False)
         layout.addWidget(self.network_label)
 
+        self.limit_row = QtWidgets.QHBoxLayout()
+        self.limit_row.setSpacing(12)
+        limit_caption = QtWidgets.QLabel("Process sample size")
+        limit_caption.setObjectName("subtitle")
+        self.limit_row.addWidget(limit_caption)
+
+        self.limit_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.limit_slider.setObjectName("scanSlider")
+        self.limit_slider.setRange(1, 250)
+        self.limit_slider.setPageStep(10)
+        self.limit_slider.setValue(75)
+        self.limit_slider.valueChanged.connect(self._limit_changed)
+        self.limit_row.addWidget(self.limit_slider, stretch=1)
+
+        self.limit_value_label = QtWidgets.QLabel(self._limit_text())
+        self.limit_value_label.setObjectName("subtitle")
+        self.limit_row.addWidget(self.limit_value_label)
+        layout.addLayout(self.limit_row)
+
+        self._last_limit = self.limit_slider.value()
+
         self.table = ProcessTable()
         layout.addWidget(self.table, stretch=1)
 
         controls_row = QtWidgets.QHBoxLayout()
         controls_row.setSpacing(14)
         self.refresh_btn = AnimatedButton("Refresh")
-        self.refresh_btn.clicked.connect(self.refresh_requested)
+        self.refresh_btn.clicked.connect(self._emit_refresh)
         controls_row.addWidget(self.refresh_btn)
 
         self.export_btn = AnimatedButton("Export Report")
@@ -418,6 +462,17 @@ class ProcessPage(PanelFrame):
         controls_row.addWidget(self.loading_label)
         layout.addLayout(controls_row)
 
+    @property
+    def process_limit(self) -> int:
+        return int(self.limit_slider.value())
+
+    @property
+    def last_limit(self) -> int:
+        return int(self._last_limit)
+
+    def set_active_limit(self, value: int) -> None:
+        self._last_limit = max(1, value)
+
     def set_summary(self, text: str) -> None:
         self.summary_label.setText(text)
 
@@ -431,6 +486,7 @@ class ProcessPage(PanelFrame):
 
     def set_refresh_state(self, active: bool, message: str | None = None) -> None:
         self.refresh_btn.setEnabled(not active)
+        self.limit_slider.setEnabled(not active)
         if active:
             self.loading_label.setText(message or "Refreshing…")
             self.loading_label.setVisible(True)
@@ -440,6 +496,17 @@ class ProcessPage(PanelFrame):
 
     def update_rows(self, rows: List[Dict[str, str]]) -> None:
         self.table.update_rows(rows)
+
+    def _emit_refresh(self) -> None:
+        self.refresh_requested.emit(self.process_limit)
+
+    def _limit_text(self, value: Optional[int] = None) -> str:
+        current = value if value is not None else self.limit_slider.value()
+        return f"{current} processes"
+
+    def _limit_changed(self, value: int) -> None:
+        self.limit_value_label.setText(self._limit_text(value))
+        self.set_summary(f"Manual scan ready — up to {value} processes will be sampled.")
 
 
 class DehashPage(PanelFrame):
@@ -1174,6 +1241,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scanner = ProcessScanner(include_hash=True, include_modules=False, include_connections=True)
         self.correlator = DownloadCorrelator()
         self.reporter = reporting.ReportExporter(Path.home() / "WHOIS_Watching" / "reports")
+        self._ai_context: Optional[str] = None
+        self._ai_state: Optional[str] = None
 
         self._refresh_thread: Optional[QtCore.QThread] = None
         self._refresh_worker: Optional[ProcessRefreshWorker] = None
@@ -1230,6 +1299,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pages.addWidget(self.chat_page)
 
         self.chat_manager = TorChatManager(paths.get_downloads_directory())
+        self._active_limit = self.process_page.process_limit
 
         self.navigation.set_current(0)
 
@@ -1245,6 +1315,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Ready.")
+        self._apply_ai_status()
 
         self.process_page.table.customContextMenuRequested.connect(self._show_process_menu)
         self.process_page.refresh_requested.connect(self.refresh_data)
@@ -1261,17 +1332,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.chat_page.send_message_requested.connect(self._send_chat_message)
         self.chat_page.send_file_requested.connect(self._choose_chat_file)
 
-        self.timer = QtCore.QTimer(self)
-        self.timer.setInterval(12000)
-        self.timer.timeout.connect(self.refresh_data)
-        self.timer.start()
-
         self.chat_timer = QtCore.QTimer(self)
         self.chat_timer.setInterval(400)
         self.chat_timer.timeout.connect(self._drain_chat_events)
         self.chat_timer.start()
-
-        self.refresh_data()
 
     @QtCore.pyqtSlot(str, int)
     def _show_status(self, message: str, duration: int) -> None:
@@ -1285,7 +1349,7 @@ class MainWindow(QtWidgets.QMainWindow):
         rows: List[Dict[str, str]] = []
         for process in processes:
             signals = self._signals_for_process(process)
-            confidence, cause = self.heuristics.evaluate(signals)
+            confidence, cause = self.heuristics.evaluate(signals, ai_context=self._ai_context)
             rows.append(
                 {
                     "pid": str(process.pid),
@@ -1329,14 +1393,22 @@ class MainWindow(QtWidgets.QMainWindow):
             )
         return signals
 
-    def refresh_data(self) -> None:
+    def refresh_data(self, limit: Optional[int] = None) -> None:
         if self._refresh_in_progress:
             return
+        if limit is None or limit <= 0:
+            limit = self.process_page.process_limit
+        limit = max(1, int(limit))
+        self._active_limit = limit
+        self.process_page.set_active_limit(limit)
+        self.process_page.set_refresh_state(True, f"Scanning up to {limit} processes…")
+        self.process_page.set_summary(f"Scanning up to {limit} processes…")
+        self.process_page.set_network_summary(None)
+        self._apply_ai_status()
         self._refresh_in_progress = True
-        self.process_page.set_refresh_state(True, "Scanning active processes…")
 
         self._refresh_thread = QtCore.QThread(self)
-        self._refresh_worker = ProcessRefreshWorker(self.scanner)
+        self._refresh_worker = ProcessRefreshWorker(self.scanner, limit)
         self._refresh_worker.moveToThread(self._refresh_thread)
         self._refresh_thread.started.connect(self._refresh_worker.run)
         self._refresh_worker.results_ready.connect(self._handle_refresh_results)
@@ -1352,19 +1424,68 @@ class MainWindow(QtWidgets.QMainWindow):
         self._process_lookup = {process.pid: process for process in processes}
         rows = self._build_rows(processes)
         self.process_page.update_rows(rows)
-        self.process_page.set_summary(f"Monitoring {len(rows)} live processes")
+        requested = self.process_page.last_limit
+        self.process_page.set_summary(
+            f"Displaying {len(rows)} processes (requested up to {requested})"
+        )
         endpoint_count = sum(len(process.connections or []) for process in processes)
         endpoint_text = (
             f"Observed {endpoint_count} active network endpoints" if endpoint_count else "No active network connections"
         )
         self.process_page.set_network_summary(endpoint_text)
         self._last_refresh = _dt.datetime.now()
-        self.status_bar.showMessage(f"Loaded {len(rows)} processes", 5000)
+        self.status_bar.showMessage(
+            f"Loaded {len(rows)} processes against limit {requested}",
+            5000,
+        )
         self._update_downloads(processes)
 
     def _handle_refresh_error(self, message: str) -> None:
         self.process_page.set_refresh_state(False, None)
+        self.process_page.set_summary("Scan error — see status message for details.")
         self.status_bar.showMessage(f"Refresh error: {message}", 8000)
+
+    def _resolve_ai_status(self) -> Dict[str, str]:
+        model = self.settings.api_keys.get("openai_model", AI_DEFAULT_MODEL)
+        key = self.settings.api_keys.get("openai")
+        if not key:
+            return {
+                "label": "AI Link: Offline",
+                "state": "offline",
+                "context": f"AI insights offline — configure OpenAI key (model {model})",
+                "status_message": "AI insights offline — configure an OpenAI API key to enable contextual explanations.",
+            }
+        try:
+            importlib.import_module("openai")
+        except ImportError:
+            return {
+                "label": f"AI Link: Setup ({model})",
+                "state": "warning",
+                "context": f"OpenAI key saved — install openai package to enable model {model}",
+                "status_message": "OpenAI key detected — install the 'openai' package to activate AI insights.",
+            }
+        return {
+            "label": f"AI Link: {model}",
+            "state": "online",
+            "context": f"AI insights available (model {model})",
+            "status_message": f"AI insights available via {model}.",
+        }
+
+    def _apply_ai_status(self) -> None:
+        status = self._resolve_ai_status()
+        label = status.get("label", "AI Link: Offline")
+        state = status.get("state", "offline")
+        context = status.get("context")
+        status_message = status.get("status_message")
+        if context:
+            self._ai_context = context
+        else:
+            self._ai_context = None
+        if hasattr(self, "title_bar"):
+            self.title_bar.set_connection_status(label, state)
+        if self._ai_state != state and status_message:
+            self.status_bar.showMessage(status_message, 6000)
+        self._ai_state = state
 
     def _update_downloads(self, processes: Sequence[ProcessInfo]) -> None:
         candidates = list(self.correlator.iter_candidates() or [])
@@ -1447,7 +1568,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _show_process_overview(self, process: ProcessInfo) -> None:
         signals = self._signals_for_process(process)
-        confidence, cause = self.heuristics.evaluate(signals)
+        confidence, cause = self.heuristics.evaluate(signals, ai_context=self._ai_context)
         downloads: List[DownloadCandidate] = []
         if process.sha256:
             for candidate in self.correlator.match_process(process.sha256):
@@ -1555,7 +1676,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh_worker = None
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
-        self.timer.stop()
         self.chat_timer.stop()
         self.chat_manager.stop()
         if self._refresh_thread and self._refresh_thread.isRunning():

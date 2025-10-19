@@ -65,8 +65,11 @@ class ProcessScanner:
         self._hash_cache[path] = None
         return None
 
-    def list_processes(self) -> Iterable[ProcessInfo]:
-        for proc in psutil.process_iter(attrs=["pid", "ppid", "name", "username", "create_time", "exe", "cmdline", "status"]):
+    def list_processes(self, limit: Optional[int] = None) -> Iterable[ProcessInfo]:
+        count = 0
+        for proc in psutil.process_iter(
+            attrs=["pid", "ppid", "name", "username", "create_time", "exe", "cmdline", "status"]
+        ):
             try:
                 info = proc.info
                 exe = info.get("exe") or ""
@@ -113,6 +116,9 @@ class ProcessScanner:
                     dlls=dlls,
                     connections=conns,
                 )
+                count += 1
+                if limit is not None and count >= max(0, limit):
+                    break
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
