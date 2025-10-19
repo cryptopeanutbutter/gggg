@@ -81,10 +81,6 @@ QTextBrowser, QTextEdit {
     padding: 10px 14px;
     color: rgba(240, 230, 255, 0.94);
 }
-QTextBrowser#chatLog {
-    background-color: rgba(12, 4, 24, 0.82);
-    border: 1px solid rgba(160, 120, 255, 0.28);
-}
 QCheckBox {
     color: rgba(220, 205, 255, 0.85);
     spacing: 8px;
