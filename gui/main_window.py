@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import datetime as _dt
+import html
+import secrets
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
@@ -10,8 +12,16 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from heuristics.engine import HeuristicEngine, HeuristicSignal
 from scanner.downloads import DownloadCandidate, DownloadCorrelator
 from scanner.process_scanner import ProcessInfo, ProcessScanner
-from utils import reporting, settings
+from utils import reporting, settings, paths
+from utils.crypto_toolkit import (
+    decrypt_file as toolkit_decrypt_file,
+    decrypt_text as toolkit_decrypt_text,
+    encrypt_file as toolkit_encrypt_file,
+    encrypt_text as toolkit_encrypt_text,
+    generate_passphrase,
+)
 from utils.hashing import MultiDehasher
+from utils.tor_chat import ChatEvent, TorChatManager
 from . import theme
 
 
@@ -594,6 +604,468 @@ class DehashPage(PanelFrame):
         self.quick_result.setText("Ready for quick decode.")
 
 
+class EncryptionPage(PanelFrame):
+    status_message = QtCore.pyqtSignal(str, int)
+
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(34, 34, 34, 34)
+        layout.setSpacing(18)
+
+        title = QtWidgets.QLabel("Encryption Toolkit")
+        title.setObjectName("subtitle")
+        layout.addWidget(title)
+
+        summary = QtWidgets.QLabel(
+            "Generate a shared passphrase, protect investigator notes, or decrypt received payloads. "
+            "All content stays local and leverages PBKDF2-hardened keys."
+        )
+        summary.setWordWrap(True)
+        summary.setObjectName("summary")
+        layout.addWidget(summary)
+
+        passphrase_row = QtWidgets.QHBoxLayout()
+        passphrase_row.setSpacing(10)
+        self.passphrase_input = QtWidgets.QLineEdit()
+        self.passphrase_input.setPlaceholderText("Shared passphrase")
+        passphrase_row.addWidget(self.passphrase_input)
+        self.generate_btn = AnimatedButton("Generate")
+        self.generate_btn.clicked.connect(self._generate_passphrase)
+        passphrase_row.addWidget(self.generate_btn)
+        layout.addLayout(passphrase_row)
+
+        text_row = QtWidgets.QHBoxLayout()
+        text_row.setSpacing(16)
+
+        left = QtWidgets.QVBoxLayout()
+        left.setSpacing(8)
+        left_label = QtWidgets.QLabel("Plaintext")
+        left_label.setObjectName("subtitle")
+        left.addWidget(left_label)
+        self.plaintext_edit = QtWidgets.QPlainTextEdit()
+        self.plaintext_edit.setPlaceholderText("Paste analyst notes to encrypt")
+        left.addWidget(self.plaintext_edit)
+        encrypt_btn = AnimatedButton("Encrypt Text")
+        encrypt_btn.clicked.connect(self._encrypt_text)
+        left.addWidget(encrypt_btn, alignment=QtCore.Qt.AlignRight)
+        text_row.addLayout(left, stretch=1)
+
+        right = QtWidgets.QVBoxLayout()
+        right.setSpacing(8)
+        right_label = QtWidgets.QLabel("Encrypted Package")
+        right_label.setObjectName("subtitle")
+        right.addWidget(right_label)
+        self.encrypted_edit = QtWidgets.QPlainTextEdit()
+        self.encrypted_edit.setReadOnly(True)
+        self.encrypted_edit.setPlaceholderText("Ciphertext payload appears here")
+        right.addWidget(self.encrypted_edit)
+        actions = QtWidgets.QHBoxLayout()
+        actions.setSpacing(10)
+        decrypt_btn = AnimatedButton("Decrypt Text")
+        decrypt_btn.clicked.connect(self._decrypt_text)
+        actions.addWidget(decrypt_btn)
+        copy_btn = AnimatedButton("Copy Token")
+        copy_btn.clicked.connect(self._copy_token)
+        actions.addWidget(copy_btn)
+        actions.addStretch(1)
+        right.addLayout(actions)
+        text_row.addLayout(right, stretch=1)
+
+        layout.addLayout(text_row)
+
+        separator = QtWidgets.QFrame()
+        separator.setFrameShape(QtWidgets.QFrame.HLine)
+        separator.setFrameShadow(QtWidgets.QFrame.Sunken)
+        layout.addWidget(separator)
+
+        file_row = QtWidgets.QHBoxLayout()
+        file_row.setSpacing(12)
+        encrypt_file_btn = AnimatedButton("Encrypt File…")
+        encrypt_file_btn.clicked.connect(self._encrypt_file)
+        file_row.addWidget(encrypt_file_btn)
+        decrypt_file_btn = AnimatedButton("Decrypt File…")
+        decrypt_file_btn.clicked.connect(self._decrypt_file)
+        file_row.addWidget(decrypt_file_btn)
+        file_row.addStretch(1)
+        layout.addLayout(file_row)
+
+        self.status_label = QtWidgets.QLabel("Toolkit idle.")
+        self.status_label.setObjectName("loading")
+        layout.addWidget(self.status_label)
+
+    def _generate_passphrase(self) -> None:
+        token = generate_passphrase()
+        self.passphrase_input.setText(token)
+        self.status_label.setText("Generated a fresh session passphrase")
+        self.status_message.emit("Passphrase generated", 4000)
+
+    def _encrypt_text(self) -> None:
+        passphrase = self.passphrase_input.text().strip()
+        plaintext = self.plaintext_edit.toPlainText()
+        try:
+            package = toolkit_encrypt_text(passphrase, plaintext)
+        except Exception as exc:  # pragma: no cover - runtime guard
+            self.status_label.setText(str(exc))
+            self.status_message.emit(str(exc), 5000)
+            return
+        self.encrypted_edit.setPlainText(package.package())
+        self.status_label.setText("Text encrypted locally")
+        self.status_message.emit("Text encrypted", 5000)
+
+    def _decrypt_text(self) -> None:
+        passphrase = self.passphrase_input.text().strip()
+        payload = self.encrypted_edit.toPlainText().strip()
+        try:
+            plaintext = toolkit_decrypt_text(passphrase, payload)
+        except Exception as exc:
+            self.status_label.setText(str(exc))
+            self.status_message.emit(str(exc), 5000)
+            return
+        self.plaintext_edit.setPlainText(plaintext)
+        self.status_label.setText("Decryption successful")
+        self.status_message.emit("Decrypted text", 5000)
+
+    def _copy_token(self) -> None:
+        token = self.encrypted_edit.toPlainText().strip()
+        if not token:
+            self.status_label.setText("No encrypted payload to copy")
+            return
+        QtWidgets.QApplication.clipboard().setText(token)
+        self.status_label.setText("Encrypted token copied to clipboard")
+        self.status_message.emit("Token copied", 4000)
+
+    def _encrypt_file(self) -> None:
+        passphrase = self.passphrase_input.text().strip()
+        if not passphrase:
+            self.status_label.setText("Provide a passphrase before encrypting a file")
+            return
+        source, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select file to encrypt")
+        if not source:
+            return
+        destination, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save encrypted file",
+            f"{source}.enc",
+        )
+        if not destination:
+            return
+        try:
+            toolkit_encrypt_file(passphrase, Path(source), Path(destination))
+        except Exception as exc:
+            self.status_label.setText(str(exc))
+            self.status_message.emit(str(exc), 5000)
+            return
+        self.status_label.setText(f"Encrypted file stored at {destination}")
+        self.status_message.emit("File encrypted", 6000)
+
+    def _decrypt_file(self) -> None:
+        passphrase = self.passphrase_input.text().strip()
+        if not passphrase:
+            self.status_label.setText("Provide a passphrase before decrypting a file")
+            return
+        source, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select encrypted file")
+        if not source:
+            return
+        default_dest = str(Path(source).with_suffix(""))
+        destination, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Restore decrypted file",
+            default_dest,
+        )
+        if not destination:
+            return
+        try:
+            toolkit_decrypt_file(passphrase, Path(source), Path(destination))
+        except Exception as exc:
+            self.status_label.setText(str(exc))
+            self.status_message.emit(str(exc), 5000)
+            return
+        self.status_label.setText(f"File restored to {destination}")
+        self.status_message.emit("File decrypted", 6000)
+
+
+class ChatLog(QtWidgets.QTextBrowser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setReadOnly(True)
+        self.setObjectName("chatLog")
+
+    def append_entry(self, text: str) -> None:
+        self.append(text)
+
+
+class TorChatPage(PanelFrame):
+    status_message = QtCore.pyqtSignal(str, int)
+    start_host_requested = QtCore.pyqtSignal(dict)
+    join_requested = QtCore.pyqtSignal(dict)
+    stop_requested = QtCore.pyqtSignal()
+    send_message_requested = QtCore.pyqtSignal(str)
+    send_file_requested = QtCore.pyqtSignal()
+
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self._hosting = False
+        self._connected = False
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(34, 34, 34, 34)
+        layout.setSpacing(18)
+
+        title = QtWidgets.QLabel("Secure Tor Chat")
+        title.setObjectName("subtitle")
+        layout.addWidget(title)
+
+        summary = QtWidgets.QLabel(
+            "Host or join a Tor-mediated chat with other WHOIS Watching operators. Sessions require "
+            "a shared passphrase and user approval before any file is saved to disk."
+        )
+        summary.setWordWrap(True)
+        summary.setObjectName("summary")
+        layout.addWidget(summary)
+
+        mode_row = QtWidgets.QHBoxLayout()
+        mode_row.setSpacing(10)
+        mode_row.addWidget(QtWidgets.QLabel("Mode"))
+        self.mode_combo = QtWidgets.QComboBox()
+        self.mode_combo.addItems(["Host Session", "Join Session"])
+        self.mode_combo.currentIndexChanged.connect(self._mode_changed)
+        mode_row.addWidget(self.mode_combo)
+        mode_row.addStretch(1)
+        layout.addLayout(mode_row)
+
+        self.mode_stack = QtWidgets.QStackedWidget()
+        layout.addWidget(self.mode_stack)
+
+        host_widget = QtWidgets.QWidget()
+        host_layout = QtWidgets.QFormLayout(host_widget)
+        host_layout.setSpacing(10)
+        self.host_port = QtWidgets.QSpinBox()
+        self.host_port.setRange(0, 65535)
+        self.host_port.setValue(5155)
+        self.host_port.setSpecialValueText("Auto")
+        host_layout.addRow("Local Port", self.host_port)
+        self.host_session = QtWidgets.QLineEdit(self._generate_session())
+        host_layout.addRow("Session Passphrase", self.host_session)
+        self.regen_btn = AnimatedButton("Regenerate")
+        self.regen_btn.clicked.connect(self._regenerate_session)
+        host_layout.addRow("", self.regen_btn)
+        self.control_port = QtWidgets.QSpinBox()
+        self.control_port.setRange(0, 65535)
+        self.control_port.setValue(9051)
+        self.control_port.setSpecialValueText("Disabled")
+        host_layout.addRow("Tor Control Port", self.control_port)
+        self.control_password = QtWidgets.QLineEdit()
+        self.control_password.setPlaceholderText("Optional control password")
+        host_layout.addRow("Control Password", self.control_password)
+        self.host_button = AnimatedButton("Start Hosting")
+        self.host_button.clicked.connect(self._toggle_host)
+        host_layout.addRow("", self.host_button)
+        self.host_info = QtWidgets.QLabel("Waiting to start hosting")
+        self.host_info.setObjectName("loading")
+        host_layout.addRow("Status", self.host_info)
+        self.mode_stack.addWidget(host_widget)
+
+        join_widget = QtWidgets.QWidget()
+        join_layout = QtWidgets.QFormLayout(join_widget)
+        join_layout.setSpacing(10)
+        self.join_address = QtWidgets.QLineEdit()
+        self.join_address.setPlaceholderText("Peer onion address or IP")
+        join_layout.addRow("Peer Address", self.join_address)
+        self.join_port = QtWidgets.QSpinBox()
+        self.join_port.setRange(1, 65535)
+        self.join_port.setValue(5155)
+        join_layout.addRow("Peer Port", self.join_port)
+        self.join_session = QtWidgets.QLineEdit()
+        self.join_session.setPlaceholderText("Session passphrase from host")
+        join_layout.addRow("Session Passphrase", self.join_session)
+        self.use_socks = QtWidgets.QCheckBox("Use Tor SOCKS proxy (recommended)")
+        self.use_socks.setChecked(True)
+        join_layout.addRow("Transport", self.use_socks)
+        socks_row = QtWidgets.QHBoxLayout()
+        socks_row.setSpacing(6)
+        socks_row.addWidget(QtWidgets.QLabel("Host"))
+        self.socks_host = QtWidgets.QLineEdit("127.0.0.1")
+        socks_row.addWidget(self.socks_host)
+        socks_row.addWidget(QtWidgets.QLabel("Port"))
+        self.socks_port = QtWidgets.QSpinBox()
+        self.socks_port.setRange(1, 65535)
+        self.socks_port.setValue(9050)
+        socks_row.addWidget(self.socks_port)
+        join_layout.addRow("SOCKS", socks_row)
+        self.join_button = AnimatedButton("Connect")
+        self.join_button.clicked.connect(self._connect)
+        join_layout.addRow("", self.join_button)
+        self.join_info = QtWidgets.QLabel("Not connected")
+        self.join_info.setObjectName("loading")
+        join_layout.addRow("Status", self.join_info)
+        self.mode_stack.addWidget(join_widget)
+
+        self.chat_log = ChatLog()
+        layout.addWidget(self.chat_log, stretch=2)
+
+        entry_row = QtWidgets.QHBoxLayout()
+        entry_row.setSpacing(10)
+        self.message_input = QtWidgets.QLineEdit()
+        self.message_input.setPlaceholderText("Type secure message")
+        self.message_input.returnPressed.connect(self._send_message)
+        entry_row.addWidget(self.message_input, stretch=1)
+        self.send_btn = AnimatedButton("Send")
+        self.send_btn.clicked.connect(self._send_message)
+        entry_row.addWidget(self.send_btn)
+        self.file_btn = AnimatedButton("Send File")
+        self.file_btn.clicked.connect(self._send_file)
+        entry_row.addWidget(self.file_btn)
+        layout.addLayout(entry_row)
+
+        self.status_label = QtWidgets.QLabel("Tor chat idle")
+        self.status_label.setObjectName("loading")
+        layout.addWidget(self.status_label)
+
+        self._mode_changed(0)
+        self._update_controls()
+
+    def _generate_session(self) -> str:
+        return secrets.token_urlsafe(12)
+
+    def _regenerate_session(self) -> None:
+        token = self._generate_session()
+        self.host_session.setText(token)
+        self.status_label.setText("Generated a new session passphrase")
+
+    def _mode_changed(self, index: int) -> None:
+        self.mode_stack.setCurrentIndex(index)
+        self._update_controls()
+
+    def _toggle_host(self) -> None:
+        if self._hosting:
+            self.stop_requested.emit()
+            self._hosting = False
+            self.status_label.setText("Hosting stopped")
+        else:
+            handshake = self.host_session.text().strip() or self._generate_session()
+            self.host_session.setText(handshake)
+            payload = {
+                "port": self.host_port.value(),
+                "handshake": handshake,
+                "control_port": self.control_port.value() or None,
+                "control_password": self.control_password.text() or None,
+            }
+            self.start_host_requested.emit(payload)
+            self._hosting = True
+            self.status_label.setText("Starting host…")
+        self._update_controls()
+
+    def _connect(self) -> None:
+        if self._connected:
+            self.stop_requested.emit()
+            return
+        host = self.join_address.text().strip()
+        handshake = self.join_session.text().strip()
+        if not host or not handshake:
+            self.status_label.setText("Enter peer address and session passphrase")
+            return
+        payload = {
+            "host": host,
+            "port": self.join_port.value(),
+            "handshake": handshake,
+        }
+        if self.use_socks.isChecked():
+            payload["socks_host"] = self.socks_host.text().strip() or "127.0.0.1"
+            payload["socks_port"] = self.socks_port.value()
+        self.join_requested.emit(payload)
+        self.status_label.setText("Connecting…")
+
+    def _send_message(self) -> None:
+        text = self.message_input.text()
+        if not text.strip():
+            return
+        self.send_message_requested.emit(text)
+        self.chat_log.append_entry(f"<b>You:</b> {html.escape(text)}")
+        self.message_input.clear()
+
+    def _send_file(self) -> None:
+        self.send_file_requested.emit()
+
+    def _update_controls(self) -> None:
+        self.host_button.setText("Stop Hosting" if self._hosting else "Start Hosting")
+        self.join_button.setText("Disconnect" if self._connected else "Connect")
+        self.message_input.setEnabled(self._connected)
+        self.send_btn.setEnabled(self._connected)
+        self.file_btn.setEnabled(self._connected)
+
+    def set_host_details(self, address: str, onion: Optional[str]) -> None:
+        if onion:
+            self.host_info.setText(f"Hidden service: {onion}")
+        else:
+            self.host_info.setText(f"Listening on {address}")
+
+    def set_hosting_active(self, active: bool) -> None:
+        self._hosting = active
+        self._update_controls()
+
+    def set_connected(self, connected: bool) -> None:
+        self._connected = connected
+        if connected:
+            self.join_info.setText("Connected to peer")
+        else:
+            self.join_info.setText("Not connected")
+        self._update_controls()
+
+    def show_status(self, text: str) -> None:
+        self.status_label.setText(text)
+        self.status_message.emit(text, 5000)
+
+    def append_peer_message(self, text: str) -> None:
+        self.chat_log.append_entry(f"<b>Peer:</b> {html.escape(text)}")
+
+    def prompt_file_offer(self, name: str, size: int) -> bool:
+        dialog = FileOfferDialog(name, size, self)
+        return dialog.exec_() == QtWidgets.QDialog.Accepted
+
+
+class FileOfferDialog(QtWidgets.QDialog):
+    def __init__(self, name: str, size: int, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowFlags(QtCore.Qt.FramelessWindowHint | QtCore.Qt.Dialog)
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+        self.setModal(True)
+        self.setStyleSheet(theme.DIALOG_CSS)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        frame = DialogFrame()
+        frame_layout = QtWidgets.QVBoxLayout(frame)
+        frame_layout.setContentsMargins(26, 26, 26, 26)
+        frame_layout.setSpacing(14)
+
+        title = QtWidgets.QLabel("Incoming File Offer")
+        title.setObjectName("dialogTitle")
+        frame_layout.addWidget(title)
+
+        details = QtWidgets.QLabel(f"{name} • {size / 1024:.1f} KiB")
+        details.setObjectName("dialogSubtitle")
+        frame_layout.addWidget(details)
+
+        body = QtWidgets.QLabel(
+            "Accepting stores the transfer in your downloads folder; rejecting discards it."
+        )
+        body.setWordWrap(True)
+        frame_layout.addWidget(body)
+
+        button_row = QtWidgets.QHBoxLayout()
+        button_row.setSpacing(12)
+        reject_btn = AnimatedButton("Reject")
+        reject_btn.clicked.connect(self.reject)
+        button_row.addWidget(reject_btn)
+        accept_btn = AnimatedButton("Accept")
+        accept_btn.clicked.connect(self.accept)
+        button_row.addWidget(accept_btn)
+        frame_layout.addLayout(button_row)
+
+        layout.addWidget(frame)
+
 class DownloadsPage(PanelFrame):
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
@@ -734,7 +1206,9 @@ class MainWindow(QtWidgets.QMainWindow):
         content_layout.setContentsMargins(32, 28, 32, 24)
         content_layout.setSpacing(22)
 
-        self.navigation = NavigationBar(["Process Intel", "Dehasher", "Downloads", "Lab Mode"])
+        self.navigation = NavigationBar(
+            ["Process Intel", "Dehasher", "Encryption", "Downloads", "Lab Mode", "Secure Chat"]
+        )
         self.navigation.page_selected.connect(self._activate_page)
         content_layout.addWidget(self.navigation)
 
@@ -743,13 +1217,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.process_page = ProcessPage()
         self.dehash_page = DehashPage()
+        self.encryption_page = EncryptionPage()
         self.downloads_page = DownloadsPage()
         self.lab_page = LabSummaryPage()
+        self.chat_page = TorChatPage()
 
         self.pages.addWidget(self.process_page)
         self.pages.addWidget(self.dehash_page)
+        self.pages.addWidget(self.encryption_page)
         self.pages.addWidget(self.downloads_page)
         self.pages.addWidget(self.lab_page)
+        self.pages.addWidget(self.chat_page)
+
+        self.chat_manager = TorChatManager(paths.get_downloads_directory())
 
         self.navigation.set_current(0)
 
@@ -772,12 +1252,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.process_page.reduced_motion_requested.connect(self.toggle_settings)
 
         self.dehash_page.status_message.connect(self._show_status)
+        self.encryption_page.status_message.connect(self._show_status)
         self.lab_page.open_docs_requested.connect(self._open_lab_docs)
+        self.chat_page.status_message.connect(self._show_status)
+        self.chat_page.start_host_requested.connect(self._start_chat_host)
+        self.chat_page.join_requested.connect(self._join_chat_session)
+        self.chat_page.stop_requested.connect(self._stop_chat_session)
+        self.chat_page.send_message_requested.connect(self._send_chat_message)
+        self.chat_page.send_file_requested.connect(self._choose_chat_file)
 
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(12000)
         self.timer.timeout.connect(self.refresh_data)
         self.timer.start()
+
+        self.chat_timer = QtCore.QTimer(self)
+        self.chat_timer.setInterval(400)
+        self.chat_timer.timeout.connect(self._drain_chat_events)
+        self.chat_timer.start()
 
         self.refresh_data()
 
@@ -937,7 +1429,7 @@ class MainWindow(QtWidgets.QMainWindow):
         elif action == menu.open_folder_action:
             self._reveal_process(process)
         elif action == menu.check_downloads_action:
-            self._activate_page(2)
+            self._activate_page(3)
             self.status_bar.showMessage("Opened download correlations", 5000)
 
     def _copy_process_command(self, process: ProcessInfo) -> None:
@@ -968,6 +1460,94 @@ class MainWindow(QtWidgets.QMainWindow):
         QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(readme_path)))
         self.status_bar.showMessage("Opened README for lab guidance", 6000)
 
+    def _start_chat_host(self, config: Dict[str, object]) -> None:
+        handshake = str(config.get("handshake", ""))
+        port = int(config.get("port", 0))
+        control_port = config.get("control_port")
+        if isinstance(control_port, int) and control_port <= 0:
+            control_port = None
+        control_password = config.get("control_password") or None
+        try:
+            self.chat_manager.start_host(
+                port=port,
+                handshake=handshake,
+                control_port=control_port if isinstance(control_port, int) else None,
+                control_password=str(control_password) if control_password else None,
+            )
+            self.chat_page.set_hosting_active(True)
+            self.chat_page.show_status("Hosting secure session — awaiting peer")
+        except Exception as exc:  # pragma: no cover - defensive runtime
+            self.chat_page.show_status(f"Chat host error: {exc}")
+            self.chat_page.set_hosting_active(False)
+
+    def _join_chat_session(self, config: Dict[str, object]) -> None:
+        try:
+            self.chat_manager.connect(
+                host=str(config.get("host", "")),
+                port=int(config.get("port", 0)),
+                handshake=str(config.get("handshake", "")),
+                socks_host=config.get("socks_host"),
+                socks_port=int(config.get("socks_port", 0)) if config.get("socks_port") else None,
+            )
+        except Exception as exc:  # pragma: no cover - defensive runtime
+            self.chat_page.show_status(f"Chat connect error: {exc}")
+            self.chat_page.set_connected(False)
+
+    def _stop_chat_session(self) -> None:
+        self.chat_manager.stop()
+        self.chat_page.set_connected(False)
+        self.chat_page.set_hosting_active(False)
+        self.chat_page.show_status("Secure chat session closed")
+
+    def _send_chat_message(self, text: str) -> None:
+        self.chat_manager.send_message(text)
+
+    def _choose_chat_file(self) -> None:
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select file to share")
+        if not path:
+            return
+        self.chat_manager.send_file(Path(path))
+        self.chat_page.show_status(f"Offering {Path(path).name} to peer")
+
+    def _drain_chat_events(self) -> None:
+        events = self.chat_manager.poll_events()
+        for event in events:
+            if event.type == "hosting":
+                address = event.payload.get("address", "127.0.0.1")
+                onion = event.payload.get("onion")
+                self.chat_page.set_host_details(address, onion)
+                self.chat_page.show_status("Host ready — share the session passphrase securely")
+            elif event.type == "connected":
+                self.chat_page.set_connected(True)
+                self.chat_page.show_status("Secure tunnel established")
+            elif event.type == "disconnected":
+                self.chat_page.set_connected(False)
+                self.chat_page.show_status("Peer disconnected")
+            elif event.type == "message":
+                text = str(event.payload.get("text", ""))
+                if text:
+                    self.chat_page.append_peer_message(text)
+            elif event.type == "file_offer":
+                name = str(event.payload.get("name", "transfer.bin"))
+                size = int(event.payload.get("size", 0))
+                offer_id = str(event.payload.get("offer_id"))
+                accept = self.chat_page.prompt_file_offer(name, size)
+                self.chat_manager.respond_to_offer(offer_id, accept)
+                if accept:
+                    self.chat_page.show_status(f"Accepting {name}")
+                else:
+                    self.chat_page.show_status(f"Declined {name}")
+            elif event.type == "file_saved":
+                path = event.payload.get("path")
+                if path:
+                    self.chat_page.show_status(f"Saved transfer to {path}")
+            elif event.type == "status":
+                if event.message:
+                    self.chat_page.show_status(event.message)
+            elif event.type == "error":
+                message = event.message or "Chat error"
+                self.chat_page.show_status(message)
+
     def _refresh_finished(self) -> None:
         self._refresh_in_progress = False
         self.process_page.set_refresh_state(False)
@@ -976,6 +1556,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
         self.timer.stop()
+        self.chat_timer.stop()
+        self.chat_manager.stop()
         if self._refresh_thread and self._refresh_thread.isRunning():
             self._refresh_thread.requestInterruption()
             self._refresh_thread.quit()

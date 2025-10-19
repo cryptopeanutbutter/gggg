@@ -28,7 +28,7 @@ The UI uses a deep purple → indigo → near-black gradient (`gui/theme.py`) wi
 ## Requirements
 
 * Windows 10+ (primary target) with Python 3.11+
-* PyQt5, psutil, cryptography, requests, PyInstaller, pytest (pinned in `requirements.txt`)
+* PyQt5, psutil, cryptography, requests, PyInstaller, pytest, PySocks, stem (pinned in `requirements.txt`)
 * PowerShell 5+ for installer automation
 
 ## Quick Start (Developers)
@@ -89,6 +89,21 @@ Lookups are opt-in, rate-limited, and cached (`scanner/context.py`). Users can p
 ## Educational Multi Dehasher
 
 The dashboard includes a purple-themed *Educational Multi Dehasher* panel designed to demystify common hash algorithms in training scenarios. Paste hashes, select supported algorithms (MD5, SHA1, SHA256), and compare against sanctioned wordlists (`data/dehash_samples.txt` or custom lists you load). Results are clearly labeled with their source to reinforce provenance. Use this tool only for defensive analysis workshops—do not attempt to crack unauthorized data.
+
+## Encryption Toolkit
+
+The **Encryption Toolkit** tab lets responders generate high-entropy shared passphrases, encrypt investigative notes, and protect attachments in place. Text payloads are sealed with PBKDF2-derived keys and local Fernet encryption; file helpers create `.enc` packages that can be restored after providing the same passphrase. Nothing leaves the workstation, and errors are surfaced directly in the UI.
+
+## Secure Tor Chat
+
+WHOIS Watching now includes an opt-in **Secure Tor Chat** workspace for peer-to-peer coordination with other analysts running the app. Highlights:
+
+* Host mode can publish an ephemeral Tor hidden service (requires a local Tor daemon with control port access) or simply listen on localhost for testing.
+* Join mode routes connections through the Tor SOCKS proxy by default. Supply the host’s onion address and shared session passphrase to authenticate the channel.
+* Messages remain within the encrypted tunnel and are logged locally. File offers always require manual acceptance before anything is saved to the Downloads directory.
+* Use `scripts\install.bat` to package the full application into an EXE for teammates—both peers must run the compiled WHOIS Watching build to participate in the secure chat.
+
+Refer to the Tor Project documentation for enabling the control port and configuring authentication. Never expose the chat service to production networks; keep it restricted to vetted peers inside a defensive lab environment.
 
 ## Reports
 

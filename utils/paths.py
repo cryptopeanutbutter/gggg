@@ -48,3 +48,25 @@ def get_settings_path() -> Path:
 
 def get_manifest_template_path() -> Path:
     return Path(__file__).resolve().parent.parent / "compiled" / "build_manifest.template.json"
+
+
+def get_downloads_directory() -> Path:
+    """Best-effort resolution of the user's downloads directory."""
+
+    custom = os.getenv("WHOIS_WATCHING_DOWNLOADS")
+    if custom:
+        path = Path(custom)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    home = Path.home()
+    candidates = [
+        home / "Downloads",
+        home / "downloads",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    fallback = get_app_storage() / "downloads"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback

@@ -56,7 +56,7 @@ QPushButton:disabled {
     background-color: rgba(90, 60, 130, 0.35);
     color: rgba(220, 200, 255, 0.4);
 }
-QPlainTextEdit, QLineEdit {
+QPlainTextEdit, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
     background-color: rgba(22, 10, 40, 0.84);
     border: 1px solid rgba(150, 110, 220, 0.32);
     border-radius: 12px;
@@ -67,6 +67,23 @@ QPlainTextEdit, QLineEdit {
 }
 QPlainTextEdit[readOnly="true"] {
     background-color: rgba(18, 8, 32, 0.78);
+}
+QComboBox QAbstractItemView {
+    background-color: rgba(22, 10, 40, 0.94);
+    border: 1px solid rgba(150, 110, 220, 0.32);
+    selection-background-color: rgba(170, 120, 250, 0.45);
+    color: rgba(240, 230, 255, 0.94);
+}
+QTextBrowser, QTextEdit {
+    background-color: rgba(16, 6, 30, 0.88);
+    border: 1px solid rgba(110, 80, 200, 0.35);
+    border-radius: 12px;
+    padding: 10px 14px;
+    color: rgba(240, 230, 255, 0.94);
+}
+QTextBrowser#chatLog {
+    background-color: rgba(12, 4, 24, 0.82);
+    border: 1px solid rgba(160, 120, 255, 0.28);
 }
 QCheckBox {
     color: rgba(220, 205, 255, 0.85);
