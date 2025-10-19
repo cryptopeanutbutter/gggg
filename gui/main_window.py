@@ -18,9 +18,21 @@ from . import theme
 class AnimatedButton(QtWidgets.QPushButton):
     clickedRipple = QtCore.pyqtSignal()
 
-    def __init__(self, text: str, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(
+        self,
+        text: str,
+        parent: Optional[QtWidgets.QWidget] = None,
+        *,
+        glow: bool = True,
+    ) -> None:
         super().__init__(text, parent)
         self.setCursor(QtCore.Qt.PointingHandCursor)
+        self._glow: Optional[QtWidgets.QGraphicsDropShadowEffect] = None
+        self._pulse: Optional[QtCore.QVariantAnimation] = None
+        if glow:
+            self._create_glow()
+
+    def _create_glow(self) -> None:
         self._glow = QtWidgets.QGraphicsDropShadowEffect(self)
         self._glow.setBlurRadius(9)
         self._glow.setOffset(0)
@@ -35,14 +47,19 @@ class AnimatedButton(QtWidgets.QPushButton):
         self._pulse.valueChanged.connect(self._update_pulse)
         self._pulse.setEasingCurve(QtCore.QEasingCurve.InOutQuad)
 
+    def _has_glow(self) -> bool:
+        return self._glow is not None and self.graphicsEffect() is self._glow
+
     def enterEvent(self, event: QtCore.QEvent) -> None:  # noqa: N802
-        self._pulse.setDirection(QtCore.QAbstractAnimation.Forward)
-        self._pulse.start()
+        if self._pulse is not None and self._has_glow():
+            self._pulse.setDirection(QtCore.QAbstractAnimation.Forward)
+            self._pulse.start()
         super().enterEvent(event)
 
     def leaveEvent(self, event: QtCore.QEvent) -> None:  # noqa: N802
-        self._pulse.setDirection(QtCore.QAbstractAnimation.Backward)
-        self._pulse.start()
+        if self._pulse is not None and self._has_glow():
+            self._pulse.setDirection(QtCore.QAbstractAnimation.Backward)
+            self._pulse.start()
         super().leaveEvent(event)
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
@@ -50,6 +67,8 @@ class AnimatedButton(QtWidgets.QPushButton):
         self.clickedRipple.emit()
 
     def _update_pulse(self, value: float) -> None:
+        if not self._has_glow():
+            return
         color = QtGui.QColor(150, 90, 255)
         color.setAlphaF(0.35 + value * 0.4)
         self._glow.setColor(color)
@@ -151,10 +170,9 @@ class TitleBar(QtWidgets.QFrame):
 
 class NavigationButton(AnimatedButton):
     def __init__(self, text: str, parent: Optional[QtWidgets.QWidget] = None) -> None:
-        super().__init__(text, parent)
+        super().__init__(text, parent, glow=False)
         self.setCheckable(True)
         self.setObjectName("navButton")
-        self.setGraphicsEffect(None)
 
 
 class NavigationBar(QtWidgets.QFrame):

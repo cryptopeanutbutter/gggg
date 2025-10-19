@@ -45,7 +45,6 @@ QPushButton {
     color: #F6F1FF;
     font-weight: 600;
     border: 1px solid rgba(150, 110, 220, 0.45);
-    transition: all 180ms ease;
 }
 QPushButton:hover {
     background-color: rgba(170, 120, 250, 0.88);
