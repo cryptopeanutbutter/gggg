@@ -4,13 +4,15 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT_CSS = """
-#root {
-    background: qradialgradient(cx:0.25, cy:0.2, radius:1.2,
-        stop:0 #4b1d7a,
-        stop:0.4 #2c1458,
-        stop:1 #05030f);
+#chrome {
+    background: qradialgradient(cx:0.36, cy:0.25, radius:1.18,
+        stop:0 rgba(110, 70, 200, 0.96),
+        stop:0.45 rgba(60, 34, 110, 0.94),
+        stop:0.8 rgba(20, 12, 45, 0.94),
+        stop:1 rgba(6, 4, 18, 0.98));
     color: #E9E2FF;
     font-family: 'Segoe UI', 'Inter', sans-serif;
+    border-radius: 26px;
 }
 #title {
     font-size: 34px;
@@ -19,7 +21,7 @@ ROOT_CSS = """
 }
 #subtitle {
     font-size: 16px;
-    color: rgba(210, 190, 255, 0.75);
+    color: rgba(210, 190, 255, 0.78);
     font-weight: 400;
 }
 #summary {
@@ -29,57 +31,58 @@ ROOT_CSS = """
 }
 #loading {
     font-style: italic;
-    color: rgba(200, 180, 255, 0.8);
+    color: rgba(200, 180, 255, 0.82);
 }
 QFrame#panel {
-    background-color: rgba(20, 8, 40, 0.78);
-    border: 1px solid rgba(140, 90, 200, 0.35);
+    background-color: rgba(18, 8, 38, 0.88);
+    border: 1px solid rgba(150, 110, 230, 0.32);
     border-radius: 22px;
 }
 QPushButton {
-    background-color: rgba(115, 74, 190, 0.72);
-    border-radius: 10px;
-    padding: 10px 22px;
+    background-color: rgba(125, 84, 210, 0.78);
+    border-radius: 12px;
+    padding: 10px 26px;
     color: #F6F1FF;
     font-weight: 600;
-    border: 1px solid rgba(120, 90, 200, 0.45);
+    border: 1px solid rgba(150, 110, 220, 0.45);
+    transition: all 180ms ease;
 }
 QPushButton:hover {
-    background-color: rgba(150, 100, 220, 0.88);
+    background-color: rgba(170, 120, 250, 0.88);
 }
 QPushButton:pressed {
-    background-color: rgba(90, 50, 160, 0.9);
+    background-color: rgba(90, 50, 160, 0.92);
 }
 QPushButton:disabled {
     background-color: rgba(90, 60, 130, 0.35);
     color: rgba(220, 200, 255, 0.4);
 }
 QPlainTextEdit, QLineEdit {
-    background-color: rgba(22, 10, 38, 0.82);
-    border: 1px solid rgba(130, 95, 200, 0.35);
-    border-radius: 10px;
-    padding: 8px 12px;
-    color: rgba(240, 225, 255, 0.92);
-    selection-background-color: rgba(180, 130, 250, 0.5);
+    background-color: rgba(22, 10, 40, 0.84);
+    border: 1px solid rgba(150, 110, 220, 0.32);
+    border-radius: 12px;
+    padding: 10px 14px;
+    color: rgba(240, 230, 255, 0.94);
+    selection-background-color: rgba(190, 140, 255, 0.5);
     selection-color: #ffffff;
 }
 QPlainTextEdit[readOnly="true"] {
-    background-color: rgba(18, 8, 32, 0.7);
+    background-color: rgba(18, 8, 32, 0.78);
 }
 QCheckBox {
     color: rgba(220, 205, 255, 0.85);
     spacing: 8px;
 }
 QCheckBox::indicator {
-    width: 16px;
-    height: 16px;
-    border-radius: 4px;
-    border: 1px solid rgba(140, 100, 210, 0.6);
+    width: 18px;
+    height: 18px;
+    border-radius: 6px;
+    border: 1px solid rgba(170, 130, 240, 0.55);
     background: rgba(26, 12, 44, 0.9);
 }
 QCheckBox::indicator:checked {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 rgba(170, 120, 255, 0.9), stop:1 rgba(120, 70, 200, 0.9));
+        stop:0 rgba(190, 130, 255, 0.92), stop:1 rgba(130, 80, 220, 0.92));
 }
 QStatusBar {
     background: rgba(8, 3, 18, 0.6);
@@ -126,6 +129,91 @@ QHeaderView::section:horizontal {
     border: none;
     color: rgba(235, 225, 255, 0.9);
     padding: 8px 6px;
+}
+"""
+
+
+NAVIGATION_CSS = """
+QPushButton#navButton {
+    background-color: transparent;
+    border: 1px solid rgba(180, 140, 255, 0.0);
+    border-radius: 14px;
+    color: rgba(220, 205, 255, 0.82);
+    padding: 12px 24px;
+    font-weight: 600;
+}
+QPushButton#navButton:hover {
+    background-color: rgba(120, 70, 210, 0.35);
+}
+QPushButton#navButton:checked {
+    background-color: rgba(190, 140, 255, 0.38);
+    color: #ffffff;
+    border: 1px solid rgba(200, 160, 255, 0.6);
+}
+"""
+
+
+TITLE_BAR_CSS = """
+QFrame#titleBar {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 rgba(38, 16, 68, 0.92), stop:1 rgba(14, 6, 26, 0.95));
+    border-top-left-radius: 26px;
+    border-top-right-radius: 26px;
+}
+QToolButton#windowControl {
+    background: rgba(120, 70, 210, 0.35);
+    border-radius: 12px;
+    padding: 6px 10px;
+    color: rgba(240, 230, 255, 0.92);
+    border: 1px solid rgba(160, 110, 240, 0.3);
+}
+QToolButton#windowControl:hover {
+    background: rgba(190, 130, 255, 0.5);
+}
+QToolButton#windowControl:pressed {
+    background: rgba(90, 40, 160, 0.65);
+}
+"""
+
+
+PROCESS_MENU_CSS = """
+QMenu#processMenu {
+    background: rgba(30, 12, 60, 0.96);
+    border: 1px solid rgba(190, 150, 255, 0.45);
+    border-radius: 16px;
+    padding: 12px;
+}
+QMenu#processMenu::item {
+    padding: 10px 18px;
+    border-radius: 10px;
+    background-color: transparent;
+    color: rgba(235, 225, 255, 0.86);
+}
+QMenu#processMenu::item:selected {
+    background: rgba(150, 100, 230, 0.45);
+    color: #ffffff;
+}
+QMenu#processMenu::separator {
+    height: 1px;
+    background: rgba(160, 110, 240, 0.4);
+    margin: 6px 4px;
+}
+"""
+
+
+DIALOG_CSS = """
+QFrame#dialogFrame {
+    background: rgba(18, 8, 36, 0.95);
+    border: 1px solid rgba(170, 130, 250, 0.4);
+    border-radius: 24px;
+    color: rgba(240, 230, 255, 0.94);
+}
+QLabel#dialogTitle {
+    font-size: 22px;
+    font-weight: 600;
+}
+QLabel#dialogSubtitle {
+    color: rgba(210, 195, 250, 0.75);
 }
 """
 

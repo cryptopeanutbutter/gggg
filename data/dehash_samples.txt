@@ -11,3 +11,10 @@ sandbox
 incident
 purpleteam
 spacegradient
+hello
+galaxy
+nebula
+defender
+welcome
+security
+training
