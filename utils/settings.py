@@ -43,7 +43,11 @@ def load_settings() -> AppSettings:
     if not settings_path.exists():
         return AppSettings()
     if encryption is None:
-        raise RuntimeError("cryptography is required to load settings")
+        raise RuntimeError(
+            "cryptography is required to load settings. Install dependencies "
+            "with 'python -m pip install -r requirements.txt' or run "
+            "scripts\\install.bat first."
+        )
     blob = settings_path.read_bytes()
     data = encryption.decrypt_json(blob)
     return AppSettings.from_dict(data)
@@ -51,7 +55,11 @@ def load_settings() -> AppSettings:
 
 def save_settings(settings: AppSettings) -> None:
     if encryption is None:
-        raise RuntimeError("cryptography is required to save settings")
+        raise RuntimeError(
+            "cryptography is required to save settings. Install dependencies "
+            "with 'python -m pip install -r requirements.txt' or run "
+            "scripts\\install.bat first."
+        )
     payload = settings.to_dict()
     blob = encryption.encrypt_json(payload)
     paths.get_settings_path().write_bytes(blob)

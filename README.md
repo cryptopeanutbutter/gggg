@@ -42,6 +42,26 @@ pytest
 python main.py --lab-mode  # Only if you are in an isolated lab and know the passphrase
 ```
 
+### Configuring OpenAI enrichment
+
+WHOIS Watching keeps API secrets outside the repository in an encrypted
+settings bundle under `%LOCALAPPDATA%\WHOIS_Watching\`. After installing
+dependencies (the `cryptography` package is required), run the helper from the
+project root:
+
+```powershell
+# Store a key and optional model name
+python scripts\set_api_key.py --key sk-your-key --model gpt-4o-mini
+
+# Remove the stored key later if needed
+python scripts\set_api_key.py --clear
+```
+
+When the key is present, the title-bar indicator displays the configured model
+name (for example `AI Link: gpt-4o-mini`). If the helper reports that
+`cryptography` is required, reinstall dependencies with
+`python -m pip install -r requirements.txt` or rerun `scripts\install.bat`.
+
 ## Building and Installing
 
 Run the guided installer from an elevated PowerShell or Command Prompt:
