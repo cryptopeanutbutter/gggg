@@ -71,6 +71,10 @@ class ProcessScanner:
                 except (psutil.AccessDenied, psutil.NoSuchProcess):
                     conns = []
                 sha = self._safe_hash(exe) if self.include_hash else None
+                cmdline = info.get("cmdline") or []
+                if not isinstance(cmdline, (list, tuple)):
+                    cmdline = [str(cmdline)] if cmdline else []
+
                 yield ProcessInfo(
                     pid=info["pid"],
                     ppid=info.get("ppid", 0),
@@ -78,7 +82,7 @@ class ProcessScanner:
                     username=info.get("username", "unknown"),
                     create_time=info.get("create_time", 0.0) or 0.0,
                     exe=exe,
-                    cmdline=list(info.get("cmdline", [])),
+                    cmdline=list(cmdline),
                     status=info.get("status", ""),
                     integrity=self._detect_integrity(proc),
                     sha256=sha,
