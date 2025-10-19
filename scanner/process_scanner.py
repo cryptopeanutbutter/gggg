@@ -36,15 +36,33 @@ class ProcessInfo:
 
 
 class ProcessScanner:
-    def __init__(self, include_hash: bool = True) -> None:
+    def __init__(
+        self,
+        include_hash: bool = True,
+        include_modules: bool = False,
+        include_connections: bool = True,
+        max_connections: int = 12,
+    ) -> None:
         self.include_hash = include_hash
+        self.include_modules = include_modules
+        self.include_connections = include_connections
+        self.max_connections = max_connections
+        self._hash_cache: Dict[str, Optional[str]] = {}
 
     def _safe_hash(self, path: str) -> Optional[str]:
-        try:
-            if path and Path(path).exists():
-                return sha256_file(Path(path))
-        except (OSError, PermissionError):
+        if not path:
             return None
+        cached = self._hash_cache.get(path)
+        if cached is not None:
+            return cached
+        try:
+            if Path(path).exists():
+                digest = sha256_file(Path(path))
+                self._hash_cache[path] = digest
+                return digest
+        except (OSError, PermissionError):
+            pass
+        self._hash_cache[path] = None
         return None
 
     def list_processes(self) -> Iterable[ProcessInfo]:
@@ -52,24 +70,29 @@ class ProcessScanner:
             try:
                 info = proc.info
                 exe = info.get("exe") or ""
-                dlls = []
-                if hasattr(proc, "memory_maps"):
+                dlls: List[str] | None = None
+                if self.include_modules and hasattr(proc, "memory_maps"):
                     try:
                         dlls = [m.path for m in proc.memory_maps()[:20] if m.path]
                     except (psutil.AccessDenied, psutil.NoSuchProcess):
                         dlls = []
-                conns = []
-                try:
-                    for conn in proc.connections(kind="inet"):
-                        conns.append(
-                            {
-                                "laddr": f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else "",
-                                "raddr": f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else "",
-                                "status": conn.status,
-                            }
-                        )
-                except (psutil.AccessDenied, psutil.NoSuchProcess):
-                    conns = []
+                conns: List[Dict[str, str]] | None = None
+                if self.include_connections:
+                    collected = []
+                    try:
+                        for conn in proc.connections(kind="inet"):
+                            collected.append(
+                                {
+                                    "laddr": f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else "",
+                                    "raddr": f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else "",
+                                    "status": conn.status,
+                                }
+                            )
+                            if len(collected) >= self.max_connections:
+                                break
+                    except (psutil.AccessDenied, psutil.NoSuchProcess):
+                        collected = []
+                    conns = collected
                 sha = self._safe_hash(exe) if self.include_hash else None
                 cmdline = info.get("cmdline") or []
                 if not isinstance(cmdline, (list, tuple)):
