@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -10,6 +10,7 @@ from heuristics.engine import HeuristicEngine, HeuristicSignal
 from scanner.process_scanner import ProcessScanner, ProcessInfo
 from scanner.downloads import DownloadCorrelator
 from utils import reporting, settings
+from utils.hashing import DehashMatch, MultiDehasher
 from . import theme
 
 
@@ -118,6 +119,144 @@ class ProcessTable(QtWidgets.QTableWidget):
                 self.setItem(row_index, col_index, item)
 
 
+class DehashPanel(PanelFrame):
+    status_message = QtCore.pyqtSignal(str, int)
+
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("panel")
+
+        self._dehasher = MultiDehasher()
+        default_wordlist = Path(__file__).resolve().parent.parent / "data" / "dehash_samples.txt"
+        if default_wordlist.exists():
+            self._dehasher.load_wordlist(default_wordlist, source="default_samples")
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(30, 26, 30, 30)
+        layout.setSpacing(16)
+
+        title = QtWidgets.QLabel("Educational Multi Dehasher")
+        title.setObjectName("subtitle")
+        layout.addWidget(title)
+
+        description = QtWidgets.QLabel(
+            "Decode known hashes using approved wordlists to aid defensive investigations. "
+            "Outputs are for lab and training insight only."
+        )
+        description.setWordWrap(True)
+        description.setObjectName("summary")
+        layout.addWidget(description)
+
+        self.hash_input = QtWidgets.QPlainTextEdit()
+        self.hash_input.setPlaceholderText("Paste hashed values (one per line)")
+        self.hash_input.setFixedHeight(110)
+        layout.addWidget(self.hash_input)
+
+        controls_row = QtWidgets.QHBoxLayout()
+        controls_row.setSpacing(12)
+
+        self.algorithms: Dict[str, QtWidgets.QCheckBox] = {}
+        for label in ("MD5", "SHA1", "SHA256"):
+            checkbox = QtWidgets.QCheckBox(label)
+            checkbox.setChecked(True)
+            controls_row.addWidget(checkbox)
+            self.algorithms[label.lower()] = checkbox
+
+        controls_row.addStretch()
+
+        self.candidate_input = QtWidgets.QLineEdit()
+        self.candidate_input.setPlaceholderText("Add candidate plaintext")
+        self.candidate_input.setFixedWidth(240)
+        controls_row.addWidget(self.candidate_input)
+
+        add_candidate_btn = AnimatedButton("Add")
+        add_candidate_btn.clicked.connect(self.add_candidate)
+        controls_row.addWidget(add_candidate_btn)
+
+        load_button = AnimatedButton("Load Wordlist")
+        load_button.clicked.connect(self.load_wordlist)
+        controls_row.addWidget(load_button)
+
+        layout.addLayout(controls_row)
+
+        action_row = QtWidgets.QHBoxLayout()
+        action_row.setSpacing(12)
+
+        self.dehash_button = AnimatedButton("Resolve Hashes")
+        self.dehash_button.clicked.connect(self.dehash)
+        action_row.addWidget(self.dehash_button)
+
+        self.clear_button = AnimatedButton("Clear Results")
+        self.clear_button.clicked.connect(self.clear_results)
+        action_row.addWidget(self.clear_button)
+
+        action_row.addStretch()
+        layout.addLayout(action_row)
+
+        self.results = QtWidgets.QTreeWidget()
+        self.results.setColumnCount(4)
+        self.results.setHeaderLabels(["Hash", "Algorithm", "Plaintext", "Source"])
+        self.results.setRootIsDecorated(False)
+        self.results.setAlternatingRowColors(True)
+        layout.addWidget(self.results)
+
+        self.status_label = QtWidgets.QLabel("")
+        self.status_label.setObjectName("loading")
+        layout.addWidget(self.status_label)
+
+    def add_candidate(self) -> None:
+        value = self.candidate_input.text().strip()
+        if not value:
+            self.status_label.setText("Enter a candidate value to add.")
+            return
+        added = self._dehasher.add_candidates([value], source="session")
+        self.candidate_input.clear()
+        if added:
+            self.status_label.setText(f"Added {added} candidate for educational checks.")
+            self.status_message.emit("Candidate stored for dehashing", 4000)
+        else:
+            self.status_label.setText("Candidate already known or empty.")
+
+    def load_wordlist(self) -> None:
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Select Wordlist", str(Path.home()), "Text Files (*.txt)"
+        )
+        if not path:
+            return
+        added = self._dehasher.load_wordlist(Path(path))
+        self.status_label.setText(f"Loaded {added} candidates from {Path(path).name}.")
+        if added:
+            self.status_message.emit(f"Loaded {added} dehash candidates", 5000)
+
+    def _selected_algorithms(self) -> Sequence[str]:
+        selected = [name for name, checkbox in self.algorithms.items() if checkbox.isChecked()]
+        return selected or list(self.algorithms.keys())
+
+    def dehash(self) -> None:
+        hashes = [line.strip() for line in self.hash_input.toPlainText().splitlines() if line.strip()]
+        if not hashes:
+            self.status_label.setText("Provide at least one hash to resolve.")
+            return
+        algorithms = self._selected_algorithms()
+        matches = self._dehasher.dehash_many(hashes, algorithms)
+        self.results.clear()
+        rows = 0
+        for digest, entries in matches.items():
+            for entry in entries:
+                item = QtWidgets.QTreeWidgetItem([digest, entry.algorithm.upper(), entry.plaintext, entry.source])
+                self.results.addTopLevelItem(item)
+                rows += 1
+        if rows:
+            self.status_label.setText(f"Resolved {rows} combinations across {len(matches)} hashes.")
+            self.status_message.emit("Dehashing complete", 5000)
+        else:
+            self.status_label.setText("No matches found with current candidates.")
+
+    def clear_results(self) -> None:
+        self.results.clear()
+        self.status_label.clear()
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -193,12 +332,20 @@ class MainWindow(QtWidgets.QMainWindow):
         panel_layout.addLayout(controls_row)
         layout.addWidget(panel, stretch=1)
 
+        self.dehash_panel = DehashPanel(self)
+        self.dehash_panel.status_message.connect(self._show_status)
+        layout.addWidget(self.dehash_panel)
+
         self.status_bar = self.statusBar()
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(12000)
         self.timer.timeout.connect(self.refresh_data)
         self.timer.start()
         self.refresh_data()
+
+    @QtCore.pyqtSlot(str, int)
+    def _show_status(self, message: str, duration: int) -> None:
+        self.status_bar.showMessage(message, duration)
 
     def _build_rows(self, processes: List[ProcessInfo]) -> List[Dict[str, str]]:
         rows: List[Dict[str, str]] = []

@@ -9,6 +9,7 @@ assets = [
     (project_root / 'assets' / 'logo.svg', 'assets'),
     (project_root / 'assets' / 'starfield.svg', 'assets'),
     (project_root / 'data' / 'mock_processes.json', 'data'),
+    (project_root / 'data' / 'dehash_samples.txt', 'data'),
 ]
 
 added_datas = [(str(src), dest) for src, dest in assets]

@@ -86,6 +86,10 @@ Verify signatures with `signtool verify /pa`. Share SHA256 checksums alongside s
 
 Lookups are opt-in, rate-limited, and cached (`scanner/context.py`). Users can paste IP addresses to retrieve RDAP/WHOIS summaries. All responses are sanitized before display and stored locally only when reports are exported.
 
+## Educational Multi Dehasher
+
+The dashboard includes a purple-themed *Educational Multi Dehasher* panel designed to demystify common hash algorithms in training scenarios. Paste hashes, select supported algorithms (MD5, SHA1, SHA256), and compare against sanctioned wordlists (`data/dehash_samples.txt` or custom lists you load). Results are clearly labeled with their source to reinforce provenance. Use this tool only for defensive analysis workshops—do not attempt to crack unauthorized data.
+
 ## Reports
 
 Export encrypted and plaintext reports through the UI (`utils/reporting.py`). Each report includes:

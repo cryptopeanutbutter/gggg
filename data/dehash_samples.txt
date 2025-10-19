@@ -1,0 +1,13 @@
+password
+letmein
+admin
+whois
+watching
+cyberdefense
+threatintel
+forensics
+malware
+sandbox
+incident
+purpleteam
+spacegradient

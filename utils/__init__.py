@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from . import paths
 from .build_manifest import create_manifest
-from .hashing import sha256_file, sha256_bytes, aggregate_hash
+from .hashing import MultiDehasher, sha256_file, sha256_bytes, aggregate_hash
 from .logging import logger, log_secure, log_audit
 from .reporting import ReportExporter
 from .settings import AppSettings, load_settings, save_settings
@@ -26,6 +26,7 @@ __all__ = [
     "sha256_file",
     "sha256_bytes",
     "aggregate_hash",
+    "MultiDehasher",
     "logger",
     "log_secure",
     "log_audit",
