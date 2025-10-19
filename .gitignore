@@ -1,0 +1,7 @@
+__pycache__/
+venv/
+build/
+*.pyc
+compiled/*/
+compiled/*.zip
+scripts/install.log

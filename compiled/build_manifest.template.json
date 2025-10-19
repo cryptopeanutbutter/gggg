@@ -1,0 +1,12 @@
+{
+  "app": "WHOIS Watching",
+  "version": "1.0.0",
+  "build_id": "YYYYMMDDHHMMSS",
+  "python_version": "3.11.x",
+  "built_at": "2024-01-01T00:00:00Z",
+  "dependencies": ["PyQt5==5.15.10", "psutil==5.9.8"],
+  "artifacts": {
+    "onefile": "compiled/WHOIS_Watching-1.0.0-win64-YYYYMMDDHHMMSS/onefile/WHOIS_Watching.exe",
+    "onedir": "compiled/WHOIS_Watching-1.0.0-win64-YYYYMMDDHHMMSS/onedir/WHOIS_Watching/WHOIS_Watching.exe"
+  }
+}
