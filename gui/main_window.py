@@ -516,6 +516,16 @@ class DehashPage(PanelFrame):
         self._candidate_count = 0
         if self._default_wordlist.exists():
             self._candidate_count += self._dehasher.load_wordlist(self._default_wordlist, source="default_samples")
+        if self._candidate_count == 0:
+            fallback = [
+                "whoiswatching",
+                "purplegradient",
+                "defenselab",
+                "galacticshield",
+                "orbitalsecure",
+                "nebulaops",
+            ]
+            self._candidate_count += self._dehasher.add_candidates(fallback, source="builtin_fallback")
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(34, 34, 34, 34)
@@ -541,6 +551,7 @@ class DehashPage(PanelFrame):
         quick_row.setSpacing(12)
         self.quick_hash_input = QtWidgets.QLineEdit()
         self.quick_hash_input.setPlaceholderText("Quick decode — paste a single hash value")
+        self.quick_hash_input.returnPressed.connect(self.decode_single)
         quick_row.addWidget(self.quick_hash_input)
         self.quick_decode_btn = AnimatedButton("Decode")
         self.quick_decode_btn.clicked.connect(self.decode_single)
@@ -670,6 +681,7 @@ class DehashPage(PanelFrame):
 
 class EncryptionPage(PanelFrame):
     status_message = QtCore.pyqtSignal(str, int)
+    passphrase_changed = QtCore.pyqtSignal(str)
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
@@ -682,8 +694,8 @@ class EncryptionPage(PanelFrame):
         layout.addWidget(title)
 
         summary = QtWidgets.QLabel(
-            "Generate a shared passphrase, protect investigator notes, or decrypt received payloads. "
-            "All content stays local and leverages PBKDF2-hardened keys."
+            "Establish a shared passphrase, encrypt analyst notes, and stage protected payloads locally. "
+            "Keys are derived with PBKDF2 and ciphertext never leaves the workstation."
         )
         summary.setWordWrap(True)
         summary.setObjectName("summary")
@@ -693,10 +705,14 @@ class EncryptionPage(PanelFrame):
         passphrase_row.setSpacing(10)
         self.passphrase_input = QtWidgets.QLineEdit()
         self.passphrase_input.setPlaceholderText("Shared passphrase")
+        self.passphrase_input.textChanged.connect(self._propagate_passphrase)
         passphrase_row.addWidget(self.passphrase_input)
         self.generate_btn = AnimatedButton("Generate")
         self.generate_btn.clicked.connect(self._generate_passphrase)
         passphrase_row.addWidget(self.generate_btn)
+        copy_pass_btn = AnimatedButton("Copy")
+        copy_pass_btn.clicked.connect(self._copy_passphrase)
+        passphrase_row.addWidget(copy_pass_btn)
         layout.addLayout(passphrase_row)
 
         text_row = QtWidgets.QHBoxLayout()
@@ -726,12 +742,12 @@ class EncryptionPage(PanelFrame):
         right.addWidget(self.encrypted_edit)
         actions = QtWidgets.QHBoxLayout()
         actions.setSpacing(10)
-        decrypt_btn = AnimatedButton("Decrypt Text")
-        decrypt_btn.clicked.connect(self._decrypt_text)
-        actions.addWidget(decrypt_btn)
         copy_btn = AnimatedButton("Copy Token")
         copy_btn.clicked.connect(self._copy_token)
         actions.addWidget(copy_btn)
+        clear_btn = AnimatedButton("Clear")
+        clear_btn.clicked.connect(self._clear_ciphertext)
+        actions.addWidget(clear_btn)
         actions.addStretch(1)
         right.addLayout(actions)
         text_row.addLayout(right, stretch=1)
@@ -748,9 +764,6 @@ class EncryptionPage(PanelFrame):
         encrypt_file_btn = AnimatedButton("Encrypt File…")
         encrypt_file_btn.clicked.connect(self._encrypt_file)
         file_row.addWidget(encrypt_file_btn)
-        decrypt_file_btn = AnimatedButton("Decrypt File…")
-        decrypt_file_btn.clicked.connect(self._decrypt_file)
-        file_row.addWidget(decrypt_file_btn)
         file_row.addStretch(1)
         layout.addLayout(file_row)
 
@@ -758,14 +771,39 @@ class EncryptionPage(PanelFrame):
         self.status_label.setObjectName("loading")
         layout.addWidget(self.status_label)
 
+        initial = generate_passphrase()
+        self.set_passphrase(initial)
+        self.status_label.setText("Generated starter passphrase for this session")
+
+    def current_passphrase(self) -> str:
+        return self.passphrase_input.text().strip()
+
+    def set_passphrase(self, value: str) -> None:
+        previous = self.passphrase_input.blockSignals(True)
+        self.passphrase_input.setText(value)
+        self.passphrase_input.blockSignals(previous)
+
+    def _propagate_passphrase(self, value: str) -> None:
+        self.passphrase_changed.emit(value.strip())
+
     def _generate_passphrase(self) -> None:
         token = generate_passphrase()
-        self.passphrase_input.setText(token)
+        self.set_passphrase(token)
+        self.passphrase_changed.emit(token)
         self.status_label.setText("Generated a fresh session passphrase")
         self.status_message.emit("Passphrase generated", 4000)
 
+    def _copy_passphrase(self) -> None:
+        token = self.current_passphrase()
+        if not token:
+            self.status_label.setText("No passphrase to copy")
+            return
+        QtWidgets.QApplication.clipboard().setText(token)
+        self.status_label.setText("Passphrase copied to clipboard")
+        self.status_message.emit("Passphrase copied", 4000)
+
     def _encrypt_text(self) -> None:
-        passphrase = self.passphrase_input.text().strip()
+        passphrase = self.current_passphrase()
         plaintext = self.plaintext_edit.toPlainText()
         try:
             package = toolkit_encrypt_text(passphrase, plaintext)
@@ -777,19 +815,6 @@ class EncryptionPage(PanelFrame):
         self.status_label.setText("Text encrypted locally")
         self.status_message.emit("Text encrypted", 5000)
 
-    def _decrypt_text(self) -> None:
-        passphrase = self.passphrase_input.text().strip()
-        payload = self.encrypted_edit.toPlainText().strip()
-        try:
-            plaintext = toolkit_decrypt_text(passphrase, payload)
-        except Exception as exc:
-            self.status_label.setText(str(exc))
-            self.status_message.emit(str(exc), 5000)
-            return
-        self.plaintext_edit.setPlainText(plaintext)
-        self.status_label.setText("Decryption successful")
-        self.status_message.emit("Decrypted text", 5000)
-
     def _copy_token(self) -> None:
         token = self.encrypted_edit.toPlainText().strip()
         if not token:
@@ -799,8 +824,12 @@ class EncryptionPage(PanelFrame):
         self.status_label.setText("Encrypted token copied to clipboard")
         self.status_message.emit("Token copied", 4000)
 
+    def _clear_ciphertext(self) -> None:
+        self.encrypted_edit.clear()
+        self.status_label.setText("Cleared encrypted payload")
+
     def _encrypt_file(self) -> None:
-        passphrase = self.passphrase_input.text().strip()
+        passphrase = self.current_passphrase()
         if not passphrase:
             self.status_label.setText("Provide a passphrase before encrypting a file")
             return
@@ -823,8 +852,145 @@ class EncryptionPage(PanelFrame):
         self.status_label.setText(f"Encrypted file stored at {destination}")
         self.status_message.emit("File encrypted", 6000)
 
+
+class DecryptionPage(PanelFrame):
+    status_message = QtCore.pyqtSignal(str, int)
+    passphrase_changed = QtCore.pyqtSignal(str)
+
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(34, 34, 34, 34)
+        layout.setSpacing(18)
+
+        title = QtWidgets.QLabel("Decryption Toolkit")
+        title.setObjectName("subtitle")
+        layout.addWidget(title)
+
+        summary = QtWidgets.QLabel(
+            "Paste encrypted packages or restore `.enc` files created in the Encryption tab. "
+            "Decryption requires the exact shared passphrase; nothing is sent off-device."
+        )
+        summary.setWordWrap(True)
+        summary.setObjectName("summary")
+        layout.addWidget(summary)
+
+        passphrase_row = QtWidgets.QHBoxLayout()
+        passphrase_row.setSpacing(10)
+        self.passphrase_input = QtWidgets.QLineEdit()
+        self.passphrase_input.setPlaceholderText("Shared passphrase")
+        self.passphrase_input.textChanged.connect(self._propagate_passphrase)
+        passphrase_row.addWidget(self.passphrase_input)
+        paste_btn = AnimatedButton("Paste")
+        paste_btn.clicked.connect(self._paste_passphrase)
+        passphrase_row.addWidget(paste_btn)
+        layout.addLayout(passphrase_row)
+
+        text_row = QtWidgets.QHBoxLayout()
+        text_row.setSpacing(16)
+
+        left = QtWidgets.QVBoxLayout()
+        left.setSpacing(8)
+        left_label = QtWidgets.QLabel("Encrypted Package")
+        left_label.setObjectName("subtitle")
+        left.addWidget(left_label)
+        self.encrypted_input = QtWidgets.QPlainTextEdit()
+        self.encrypted_input.setPlaceholderText("Paste ciphertext token to decrypt")
+        left.addWidget(self.encrypted_input)
+        decrypt_btn = AnimatedButton("Decrypt Text")
+        decrypt_btn.clicked.connect(self._decrypt_text)
+        left.addWidget(decrypt_btn, alignment=QtCore.Qt.AlignRight)
+        text_row.addLayout(left, stretch=1)
+
+        right = QtWidgets.QVBoxLayout()
+        right.setSpacing(8)
+        right_label = QtWidgets.QLabel("Plaintext Result")
+        right_label.setObjectName("subtitle")
+        right.addWidget(right_label)
+        self.plaintext_output = QtWidgets.QPlainTextEdit()
+        self.plaintext_output.setReadOnly(True)
+        self.plaintext_output.setPlaceholderText("Decrypted content will appear here")
+        right.addWidget(self.plaintext_output)
+        actions = QtWidgets.QHBoxLayout()
+        actions.setSpacing(10)
+        copy_btn = AnimatedButton("Copy Plaintext")
+        copy_btn.clicked.connect(self._copy_plaintext)
+        actions.addWidget(copy_btn)
+        clear_btn = AnimatedButton("Clear")
+        clear_btn.clicked.connect(self._clear_plaintext)
+        actions.addWidget(clear_btn)
+        actions.addStretch(1)
+        right.addLayout(actions)
+        text_row.addLayout(right, stretch=1)
+
+        layout.addLayout(text_row)
+
+        separator = QtWidgets.QFrame()
+        separator.setFrameShape(QtWidgets.QFrame.HLine)
+        separator.setFrameShadow(QtWidgets.QFrame.Sunken)
+        layout.addWidget(separator)
+
+        file_row = QtWidgets.QHBoxLayout()
+        file_row.setSpacing(12)
+        decrypt_file_btn = AnimatedButton("Decrypt File…")
+        decrypt_file_btn.clicked.connect(self._decrypt_file)
+        file_row.addWidget(decrypt_file_btn)
+        file_row.addStretch(1)
+        layout.addLayout(file_row)
+
+        self.status_label = QtWidgets.QLabel("Awaiting encrypted input.")
+        self.status_label.setObjectName("loading")
+        layout.addWidget(self.status_label)
+
+    def current_passphrase(self) -> str:
+        return self.passphrase_input.text().strip()
+
+    def set_passphrase(self, value: str) -> None:
+        previous = self.passphrase_input.blockSignals(True)
+        self.passphrase_input.setText(value)
+        self.passphrase_input.blockSignals(previous)
+
+    def _propagate_passphrase(self, value: str) -> None:
+        self.passphrase_changed.emit(value.strip())
+
+    def _paste_passphrase(self) -> None:
+        text = QtWidgets.QApplication.clipboard().text()
+        if text:
+            self.set_passphrase(text.strip())
+            self.status_label.setText("Passphrase pasted from clipboard")
+
+    def _decrypt_text(self) -> None:
+        passphrase = self.current_passphrase()
+        payload = self.encrypted_input.toPlainText().strip()
+        if not payload:
+            self.status_label.setText("Provide an encrypted token to decrypt")
+            return
+        try:
+            plaintext = toolkit_decrypt_text(passphrase, payload)
+        except Exception as exc:
+            self.status_label.setText(str(exc))
+            self.status_message.emit(str(exc), 5000)
+            return
+        self.plaintext_output.setPlainText(plaintext)
+        self.status_label.setText("Decryption successful")
+        self.status_message.emit("Decrypted text", 5000)
+
+    def _copy_plaintext(self) -> None:
+        value = self.plaintext_output.toPlainText().strip()
+        if not value:
+            self.status_label.setText("No plaintext to copy")
+            return
+        QtWidgets.QApplication.clipboard().setText(value)
+        self.status_label.setText("Plaintext copied to clipboard")
+        self.status_message.emit("Plaintext copied", 4000)
+
+    def _clear_plaintext(self) -> None:
+        self.encrypted_input.clear()
+        self.plaintext_output.clear()
+        self.status_label.setText("Cleared buffers")
+
     def _decrypt_file(self) -> None:
-        passphrase = self.passphrase_input.text().strip()
+        passphrase = self.current_passphrase()
         if not passphrase:
             self.status_label.setText("Provide a passphrase before decrypting a file")
             return
@@ -847,9 +1013,6 @@ class EncryptionPage(PanelFrame):
             return
         self.status_label.setText(f"File restored to {destination}")
         self.status_message.emit("File decrypted", 6000)
-
-
-
 class DownloadsPage(PanelFrame):
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
@@ -993,7 +1156,7 @@ class MainWindow(QtWidgets.QMainWindow):
         content_layout.setSpacing(22)
 
         self.navigation = NavigationBar(
-            ["Process Intel", "Dehasher", "Encryption", "Downloads", "Lab Mode"]
+            ["Process Intel", "Dehasher", "Encryption", "Decryption", "Downloads", "Lab Mode"]
         )
         self.navigation.page_selected.connect(self._activate_page)
         content_layout.addWidget(self.navigation)
@@ -1004,12 +1167,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.process_page = ProcessPage()
         self.dehash_page = DehashPage()
         self.encryption_page = EncryptionPage()
+        self.decryption_page = DecryptionPage()
         self.downloads_page = DownloadsPage()
         self.lab_page = LabSummaryPage()
 
         self.pages.addWidget(self.process_page)
         self.pages.addWidget(self.dehash_page)
         self.pages.addWidget(self.encryption_page)
+        self.pages.addWidget(self.decryption_page)
         self.pages.addWidget(self.downloads_page)
         self.pages.addWidget(self.lab_page)
         self._active_limit = self.process_page.process_limit
@@ -1037,6 +1202,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.dehash_page.status_message.connect(self._show_status)
         self.encryption_page.status_message.connect(self._show_status)
+        self.decryption_page.status_message.connect(self._show_status)
+        self.encryption_page.passphrase_changed.connect(self.decryption_page.set_passphrase)
+        self.decryption_page.passphrase_changed.connect(self.encryption_page.set_passphrase)
+        self.decryption_page.set_passphrase(self.encryption_page.current_passphrase())
         self.lab_page.open_docs_requested.connect(self._open_lab_docs)
 
     @QtCore.pyqtSlot(str, int)

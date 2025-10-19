@@ -115,24 +115,63 @@ for /f %%h in ('powershell -NoLogo -NoProfile -Command "Get-FileHash -Algorithm 
 call :log "Built executable SHA256: %EXE_SHA%"
 echo SHA256 (onefile exe): %EXE_SHA%
 
-python -c \"from pathlib import Path; import sys; from utils import build_manifest; requirements = Path('requirements.txt').read_text(encoding='utf-8').splitlines(); manifest_path = Path(r'%BUILD_ROOT%') / 'build_manifest.json'; build_manifest.create_manifest(manifest_path, version='%VERSION%', build_id='%BUILD_ID%', python_version=sys.version.split()[0], dependencies=requirements, artifacts={'onefile': str(Path(r'%BUILD_ONEFILE%') / 'WHOIS_Watching.exe'), 'onedir': str(Path(r'%BUILD_ONEDIR%') / 'WHOIS_Watching' / 'WHOIS_Watching.exe')})\"
+set INSTALLER_PATH=
+
+set /p INSTALLER_PROMPT=Build Windows setup installer (requires Inno Setup ISCC.exe)? (Y/N):
+if /I "%INSTALLER_PROMPT%"=="Y" call :build_installer
+
+set /p ZIP_CHOICE=Create portable ZIP package? (Y/N):
+if /I "%ZIP_CHOICE%"=="Y" (
+    call "%SCRIPT_DIR%create_portable_zip.bat" "%BUILD_ROOT%"
+)
+
+set MANIFEST_EXTRA=
+if defined INSTALLER_PATH (
+    set MANIFEST_EXTRA=, 'installer': str(Path(r'%INSTALLER_PATH%'))
+)
+python -c "from pathlib import Path; import sys; from utils import build_manifest; requirements = Path('requirements.txt').read_text(encoding='utf-8').splitlines(); manifest_path = Path(r'%BUILD_ROOT%') / 'build_manifest.json'; build_manifest.create_manifest(manifest_path, version='%VERSION%', build_id='%BUILD_ID%', python_version=sys.version.split()[0], dependencies=requirements, artifacts={'onefile': str(Path(r'%BUILD_ONEFILE%') / 'WHOIS_Watching.exe'), 'onedir': str(Path(r'%BUILD_ONEDIR%') / 'WHOIS_Watching' / 'WHOIS_Watching.exe')%MANIFEST_EXTRA%})"
 if errorlevel 1 goto :error_manifest
 
 echo Build artifacts available in %BUILD_ROOT%
 call :log "Build completed: %BUILD_ROOT%"
 
-set /p ZIP_CHOICE=Create portable ZIP package? (Y/N): 
-if /I "%ZIP_CHOICE%"=="Y" (
-    call "%SCRIPT_DIR%create_portable_zip.bat" "%BUILD_ROOT%"
-)
-
-set /p INSTALL_CHOICE=Perform user-level install to %%LOCALAPPDATA%%\Programs\WHOIS_Watching\ ? (Y/N): 
+set /p INSTALL_CHOICE=Perform user-level install to %%LOCALAPPDATA%%\Programs\WHOIS_Watching\ ? (Y/N):
 if /I "%INSTALL_CHOICE%"=="Y" goto :user_install
 
-set /p SYSTEM_CHOICE=Generate system-wide install script for C:\\Program Files\\WHOIS_Watching\\ ? (Y/N): 
+set /p SYSTEM_CHOICE=Generate system-wide install script for C:\\Program Files\\WHOIS_Watching\\ ? (Y/N):
 if /I "%SYSTEM_CHOICE%"=="Y" goto :system_install
 
 goto :cleanup
+
+:build_installer
+call :log "Installer build requested"
+where iscc >nul 2>&1
+if errorlevel 1 (
+    echo Inno Setup ISCC.exe not found in PATH. Skipping installer build.
+    call :log "ISCC.exe missing - skipping installer build"
+    goto :after_installer
+)
+set INSTALLER_SOURCE=%BUILD_ONEDIR%\WHOIS_Watching
+if not exist "%INSTALLER_SOURCE%" (
+    echo PyInstaller onedir output missing at %INSTALLER_SOURCE%.
+    call :log "Onedir bundle missing for installer"
+    goto :after_installer
+)
+set INSTALLER_NAME=WHOIS_Watching_Setup_%VERSION%_%BUILD_ID%.exe
+call :log "Running ISCC.exe to build installer %INSTALLER_NAME%"
+iscc "%SCRIPT_DIR%whois_watching_installer.iss" /DAppVersion=%VERSION% /DAppBuild=%BUILD_ID% /DSourceDir=%INSTALLER_SOURCE% /DOutputDir=%BUILD_ROOT%
+if errorlevel 1 goto :error_installer
+set INSTALLER_PATH=%BUILD_ROOT%\WHOIS_Watching_Setup_%VERSION%_%BUILD_ID%.exe
+if not exist "%INSTALLER_PATH%" (
+    echo Installer output not found at %INSTALLER_PATH%.
+    call :log "Installer output missing after ISCC"
+    goto :after_installer
+)
+echo Installer created at %INSTALLER_PATH%
+call :log "Installer created: %INSTALLER_PATH%"
+
+:after_installer
+exit /b 0
 
 :user_install
 if "%LOCALAPPDATA%"=="" (
@@ -195,6 +234,7 @@ echo  - Ensure a dedicated Python virtual environment is ready
 echo  - Install dependencies from requirements.txt
 echo  - Run automated unit tests (pytest)
 echo  - Build signed metadata-aware executables with PyInstaller
+echo  - Optionally build a Windows setup installer (Inno Setup)
 echo  - Optionally package and install the application locally
 call :log "Displayed header"
 goto :eof
@@ -242,6 +282,11 @@ exit /b 1
 :error_manifest
 echo Failed to create build manifest.
 call :log "Manifest generation failed"
+exit /b 1
+
+:error_installer
+echo Installer build failed.
+call :log "Installer build failed"
 exit /b 1
 
 :error_versionfile

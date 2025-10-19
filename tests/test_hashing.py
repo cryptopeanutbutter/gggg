@@ -39,7 +39,12 @@ def test_multi_dehasher_matches(tmp_path: Path) -> None:
     wordlist = tmp_path / "wordlist.txt"
     wordlist.write_text("delta\n")
     added = hasher.load_wordlist(wordlist, source="wordlist")
-    assert added == 1
+    assert added >= 1
     delta_hash = sha256_bytes(b"delta")
     delta_results = hasher.dehash_many([delta_hash], ["sha256"])
     assert delta_results[delta_hash.lower()][0].source == "wordlist"
+
+    mutated = sha256_bytes(b"CHARLIE123")
+    mutated_results = hasher.dehash_many([mutated], ["sha256"])
+    assert mutated.lower() in mutated_results
+    assert any(match.plaintext.lower() == "charlie123" for match in mutated_results[mutated.lower()])

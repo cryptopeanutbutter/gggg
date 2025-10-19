@@ -77,7 +77,7 @@ class ProcessScanner:
                 if self.include_modules and hasattr(proc, "memory_maps"):
                     try:
                         dlls = [m.path for m in proc.memory_maps()[:20] if m.path]
-                    except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess, psutil.Error):
                         dlls = []
                 conns: List[Dict[str, str]] | None = None
                 if self.include_connections:
@@ -93,7 +93,7 @@ class ProcessScanner:
                             )
                             if len(collected) >= self.max_connections:
                                 break
-                    except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess, psutil.Error, NotImplementedError):
                         collected = []
                     conns = collected
                 sha = self._safe_hash(exe) if self.include_hash else None
@@ -119,7 +119,7 @@ class ProcessScanner:
                 count += 1
                 if limit is not None and count >= max(0, limit):
                     break
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, psutil.Error):
                 continue
 
     def _detect_integrity(self, proc: psutil.Process) -> str:

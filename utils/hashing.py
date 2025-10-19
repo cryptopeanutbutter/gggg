@@ -61,21 +61,41 @@ class MultiDehasher:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
         return getattr(hashlib, self.SUPPORTED_ALGORITHMS[algorithm])
 
+    def _generate_variants(self, value: str) -> Iterable[str]:
+        seeds = {
+            value,
+            value.lower(),
+            value.upper(),
+            value.title(),
+        }
+        variants = set()
+        for seed in seeds:
+            if not seed:
+                continue
+            variants.add(seed)
+            if not seed[-1].isdigit():
+                variants.add(f"{seed}123")
+                variants.add(f"{seed}!")
+        return variants
+
     def add_candidates(self, candidates: Iterable[str], *, source: str = "manual") -> int:
         """Register plaintext candidates for educational dehashing."""
 
         added = 0
         for candidate in candidates:
-            value = self._normalise_candidate(candidate)
-            if not value or value in self._candidate_sources:
+            base = self._normalise_candidate(candidate)
+            if not base:
                 continue
-            self._candidate_sources[value] = source
-            for algorithm in self.SUPPORTED_ALGORITHMS:
-                digest = self._hasher(algorithm)(value.encode("utf-8")).hexdigest()
-                bucket = self._hash_cache[algorithm].setdefault(digest, [])
-                if value not in bucket:
-                    bucket.append(value)
-            added += 1
+            for value in self._generate_variants(base):
+                if value in self._candidate_sources:
+                    continue
+                self._candidate_sources[value] = source
+                for algorithm in self.SUPPORTED_ALGORITHMS:
+                    digest = self._hasher(algorithm)(value.encode("utf-8")).hexdigest()
+                    bucket = self._hash_cache[algorithm].setdefault(digest, [])
+                    if value not in bucket:
+                        bucket.append(value)
+                added += 1
         return added
 
     def load_wordlist(self, path: Path, *, source: str | None = None) -> int:

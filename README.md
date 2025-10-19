@@ -61,10 +61,13 @@ The script logs to `scripts\install.log`, prompts for confirmation, prepares `ve
 
 * `compiled/WHOIS_Watching-<version>-win64-<build-id>/onedir/` – PyInstaller onedir bundle based on `scripts/whois_watching.spec`.
 * `compiled/WHOIS_Watching-<version>-win64-<build-id>/onefile/WHOIS_Watching.exe` – self-contained onefile executable.
+* `compiled/WHOIS_Watching-<version>-win64-<build-id>/WHOIS_Watching_Setup_<version>_<build-id>.exe` – optional Inno Setup installer when `ISCC.exe` is available.
 * `compiled/.../build_manifest.json` – generated manifest with version, dependencies, and SHA256 entries (template at `compiled/build_manifest.template.json`).
 * `scripts/install.log` – detailed action log.
 
-The installer can optionally compress the build via `scripts/create_portable_zip.bat` and perform a user-level install (`%LOCALAPPDATA%\Programs\WHOIS_Watching\`) with a Start Menu shortcut. System-wide installs require generating an elevated PowerShell script (no auto-elevation).
+The installer can optionally compress the build via `scripts/create_portable_zip.bat` and perform a user-level install (`%LOCALAPPDATA%\Programs\WHOIS_Watching\`) with a Start Menu shortcut named **WHOIS Watching**, ensuring Windows search locates the app. System-wide installs require generating an elevated PowerShell script (no auto-elevation).
+
+To build the full setup installer, install [Inno Setup](https://jrsoftware.org/isinfo.php) and ensure `ISCC.exe` is on your `PATH`. When prompted, answer **Y** to the installer question in `scripts\install.bat`; the script will compile `scripts/whois_watching_installer.iss` into `compiled/.../WHOIS_Watching_Setup_<version>_<build-id>.exe` for easy distribution.
 
 ### Signing and Verification
 
@@ -88,11 +91,13 @@ Lookups are opt-in, rate-limited, and cached (`scanner/context.py`). Users can p
 
 ## Educational Multi Dehasher
 
-The dashboard includes a purple-themed *Educational Multi Dehasher* panel designed to demystify common hash algorithms in training scenarios. Paste hashes, select supported algorithms (MD5, SHA1, SHA256), and compare against sanctioned wordlists (`data/dehash_samples.txt` or custom lists you load). Results are clearly labeled with their source to reinforce provenance. Use this tool only for defensive analysis workshops—do not attempt to crack unauthorized data.
+The dashboard includes a purple-themed *Educational Multi Dehasher* panel designed to demystify common hash algorithms in training scenarios. Paste hashes, select supported algorithms (MD5, SHA1, SHA256), and compare against sanctioned wordlists (`data/dehash_samples.txt` or custom lists you load). Built-in fallback candidates and controlled permutations (case shifts, numeric suffixes) help demonstrate how small wordlist changes influence results. Matches are clearly labeled with their source to reinforce provenance. Use this tool only for defensive analysis workshops—do not attempt to crack unauthorized data.
 
-## Encryption Toolkit
+## Encryption & Decryption Toolkits
 
 The **Encryption Toolkit** tab lets responders generate high-entropy shared passphrases, encrypt investigative notes, and protect attachments in place. Text payloads are sealed with PBKDF2-derived keys and local Fernet encryption; file helpers create `.enc` packages that can be restored after providing the same passphrase. Nothing leaves the workstation, and errors are surfaced directly in the UI.
+
+The companion **Decryption Toolkit** tab keeps the process equally straightforward. Paste ciphertext tokens or select `.enc` files, reuse the synchronized passphrase, and review plaintext results in an isolated panel before copying or saving. Clipboard helpers, buffer clear actions, and shared passphrase synchronization between tabs keep the workflow tight and auditable.
 
 ## Reports
 
